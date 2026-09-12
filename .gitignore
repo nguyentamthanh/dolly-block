@@ -1,0 +1,9 @@
+# Godot 4+ import cache / generated data
+.godot/
+export_presets.cfg
+
+# Debug renders from tests/screenshot.gd -- regenerate on demand, not source
+shots/
+
+# Personal Claude Code permissions, not shared config
+.claude/settings.local.json

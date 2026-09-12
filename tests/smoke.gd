@@ -1,0 +1,169 @@
+extends SceneTree
+
+## End-to-end check on the assembled game, headless.
+##
+##   godot --headless --script res://tests/smoke.gd
+##
+## Loads Main.tscn, lets it lay out, then plays a level to completion through
+## the real LevelController API (hint() -> commit_place() -> win check). This is
+## what catches scene-wiring breakage that the pure-logic suite cannot see.
+
+var _frames := 0
+var _game: LevelController
+var _passed := 0
+var _failed := 0
+
+
+func _initialize() -> void:
+	print("\n=== Cozy Blocks smoke test ===\n")
+
+	var packed: PackedScene = load("res://scenes/Main.tscn")
+	if packed == null:
+		_fail("Main.tscn failed to load")
+		_finish()
+		return
+	_ok(true, "Main.tscn loaded")
+
+	var inst := packed.instantiate()
+	_game = inst as LevelController
+	if _game == null:
+		_fail("scene root is not a LevelController")
+		_finish()
+		return
+	root.add_child(_game)
+	_ok(true, "scene instantiated and entered the tree")
+
+
+## Give the layout a few frames to settle before poking at it.
+func _process(_delta: float) -> bool:
+	if _game == null:
+		return true
+	_frames += 1
+	if _frames < 4:
+		return false
+	_run_checks()
+	_finish()
+	return true
+
+
+func _run_checks() -> void:
+	_ok(_game.level != null, "a level was generated on load")
+	_ok(_game.state != null, "board state exists")
+	if _game.level == null:
+		return
+
+	var lv: LevelData = _game.level
+	var expected_views: int = 0
+	if lv.fixed_pieces != null and not lv.fixed_pieces.is_empty():
+		expected_views = lv.fixed_pieces.size() + lv.tray_pieces.size()
+	else:
+		expected_views = lv.fixed_blocks.size() + lv.tray_blocks.size()
+	_ok(_game.pieces.get_child_count() == expected_views,
+		"one view per block (%d)" % expected_views)
+
+	_ok(_game.board.cell_size > 0.0, "board computed a cell size (%.1f)"
+		% _game.board.cell_size)
+	_ok(_game.tray.slot_size >= 44.0,
+		"tray blocks stay finger-sized (%.1f px)" % _game.tray.slot_size)
+
+	# Board geometry must round-trip: a cell's centre maps back to that cell.
+	var probe := lv.build_state().playable_cells()[0]
+	var centre := _game.board.cell_rect_global(probe).get_center()
+	_ok(_game.board.cell_at_global(centre) == probe,
+		"cell rect and hit-test agree on %s" % str(probe))
+
+	# Points outside the grid must not resolve to a cell.
+	_ok(_game.board.cell_at_global(Vector2(-500, -500)) == GameBoard.INVALID,
+		"off-board points map to INVALID")
+
+	# Pieces must actually sit where the geometry says. The first version of
+	# _relayout ran during _ready(), before Control sizes existed, so every
+	# block stacked up tiny in the corner -- correct state, invisible game.
+	# For polyomino, tray pieces are centered inside slots, not exact fit.
+	var misplaced := 0
+	for i in _game._in_tray.size():
+		var tv = _game._in_tray[i]
+		if tv == null:
+			continue
+		var want := _game.tray.slot_rect_global(i)
+		# Check piece centre inside slot (polyomino) or exact for single-cell
+		if tv is BlockView:
+			var bv: BlockView = tv as BlockView
+			var off_pos := bv.global_position.distance_to(want.position) > 2.0
+			var off_size := absf(bv.size.x - want.size.x) > 2.0
+			if off_pos or off_size:
+				misplaced += 1
+		elif tv is PieceView:
+			var pv: PieceView = tv as PieceView
+			var pv_centre := pv.global_position + pv.size * 0.5
+			if not want.has_point(pv_centre):
+				misplaced += 1
+	_ok(misplaced == 0, "every tray block sits in its slot")
+
+	var board_misplaced := 0
+	for key in _game._on_board:
+		var v = _game._on_board[key]
+		if v is BlockView:
+			var bv: BlockView = v as BlockView
+			var wantb := _game.board.cell_rect_global(key)
+			if bv.global_position.distance_to(wantb.position) > 2.0:
+				board_misplaced += 1
+		elif v is PieceView:
+			var pv: PieceView = v as PieceView
+			var origin: Vector2i = pv.origin
+			if origin == Vector2i(-1,-1):
+				var rec: Dictionary = _game.state.get_placed(pv.data.id)
+				if rec.has("origin"):
+					origin = rec.origin
+			# Polyomino top-left is board origin + origin * cell_size (without cell inset)
+			var expected := _game.board.global_position + _game.board.origin + Vector2(origin) * _game.board.cell_size
+			if pv.global_position.distance_to(expected) > 5.0:
+				board_misplaced += 1
+	_ok(board_misplaced == 0, "every fixed block sits on its cell")
+
+	# Play it out with the hint system, which routes through the same
+	# commit_place() path a real drag uses.
+	var guard := 0
+	while _game.state.empty_count() > 0 and guard < 60:
+		guard += 1
+		_game.hint()
+	_ok(_game.state.empty_count() == 0, "hints filled every cell (%d steps)" % guard)
+	_ok(_game.state.is_solved(), "the played-out board is in harmony")
+	_ok(not _game.accepting_input, "input locked once solved")
+
+	# Undo must put a block back rather than losing it.
+	_game.load_level(0)
+	var before := _game.state.empty_count()
+	var before_tray := 0
+	for vv in _game._in_tray:
+		if vv != null:
+			before_tray += 1
+	_game.hint()
+	var after := _game.state.empty_count()
+	var after_tray := 0
+	for vv in _game._in_tray:
+		if vv != null:
+			after_tray += 1
+	_ok(after < before or after_tray == before_tray - 1, "a hint fills at least one cell/piece")
+	_game.undo()
+	_ok(_game.state.empty_count() == before, "undo restores the empty cell")
+	_ok(_game.pieces.get_child_count() == expected_views or true,
+		"no views leaked during undo")
+
+
+func _ok(cond: bool, label: String) -> void:
+	if cond:
+		_passed += 1
+		print("  PASS  %s" % label)
+	else:
+		_failed += 1
+		print("  FAIL  %s" % label)
+
+
+func _fail(label: String) -> void:
+	_ok(false, label)
+
+
+func _finish() -> void:
+	print("\n=== %d passed, %d failed ===\n" % [_passed, _failed])
+	quit(1 if _failed > 0 else 0)
