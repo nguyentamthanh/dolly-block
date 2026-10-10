@@ -123,6 +123,12 @@ func _run_checks() -> void:
 
 	# Play it out with the hint system, which routes through the same
 	# commit_place() path a real drag uses.
+	#
+	# Give the smoke test bottomless diamonds so hint()'s real HINT_COST
+	# doesn't starve this auto-solve loop -- with real spend_hint() now wired
+	# in, START_DIAMONDS=20 at HINT_COST=5 only affords 4 hints, which would
+	# silently break "hints filled every cell" once currency runs out mid-loop.
+	GameState.diamonds = 9999
 	var guard := 0
 	while _game.state.empty_count() > 0 and guard < 60:
 		guard += 1
@@ -149,6 +155,83 @@ func _run_checks() -> void:
 	_ok(_game.state.empty_count() == before, "undo restores the empty cell")
 	_ok(_game.pieces.get_child_count() == expected_views or true,
 		"no views leaked during undo")
+
+	_check_real_scoring()
+	_check_hint_cost_enforcement()
+	_check_menu_scenes()
+	_check_diamond_chip()
+
+
+## Zero-assist completion (no hint()/undo() calls -- pieces placed directly,
+## mirroring what a real drag does) must earn 3 stars and grant exactly
+## CLEAR_REWARD diamonds. Uses a fresh level so earlier hint()/undo() calls in
+## this same test run don't contaminate the assist count.
+func _check_real_scoring() -> void:
+	_game.load_level(1)
+	var before_diamonds := GameState.diamonds
+	var to_place: Array = []
+	for vv in _game._in_tray:
+		if vv != null:
+			to_place.append(vv)
+	for v in to_place:
+		var pv := v as PieceView
+		if pv == null:
+			continue
+		var origin := pv.data.orient_to_solution()
+		pv.set_cell_size(_game.board.cell_size)
+		_game.commit_place(pv, origin)
+	_ok(_game.state.is_solved(), "direct placement with zero assists reaches harmony")
+	_ok(GameState.stars_for(1) == 3, "zero-assist completion earns 3 stars")
+	_ok(GameState.diamonds == before_diamonds + GameState.CLEAR_REWARD,
+		"diamonds increase by exactly CLEAR_REWARD on completion")
+
+
+## spend_hint()'s guard must refuse a hint (and place nothing) when the player
+## can't afford it, without silently deducting anyway.
+func _check_hint_cost_enforcement() -> void:
+	_game.load_level(2)
+	GameState.diamonds = 0
+	var before_empty := _game.state.empty_count()
+	_game.hint()
+	_ok(_game.state.empty_count() == before_empty,
+		"hint() places nothing when diamonds are insufficient")
+	_ok(GameState.diamonds == 0, "spend_hint()'s guard does not deduct on failure")
+
+
+## The menu/level-select scenes must load independently of Main.tscn (same
+## load()/instantiate() pattern used for Main.tscn above) and expose the nodes
+## a player would actually interact with.
+func _check_menu_scenes() -> void:
+	var menu_packed: PackedScene = load("res://scenes/MainMenu.tscn")
+	var menu := menu_packed.instantiate() as MainMenuScreen
+	_ok(menu != null, "MainMenu.tscn instantiates as MainMenuScreen")
+	if menu == null:
+		return
+	root.add_child(menu)
+	_ok(menu.play_button != null, "MainMenu exposes its Play button")
+
+	var ls_packed: PackedScene = load("res://scenes/LevelSelect.tscn")
+	var ls := ls_packed.instantiate() as LevelSelectScreen
+	_ok(ls != null, "LevelSelect.tscn instantiates as LevelSelectScreen")
+	if ls == null:
+		return
+	root.add_child(ls)
+	var tile_count := ls.grid.get_child_count()
+	_ok(tile_count >= GameState.highest_unlocked + 1,
+		"level grid has at least highest_unlocked+1 tiles (%d)" % tile_count)
+
+	var locked_disabled := true
+	for i in tile_count:
+		var tile := ls.grid.get_child(i) as Button
+		if i > GameState.highest_unlocked and tile != null and not tile.disabled:
+			locked_disabled = false
+	_ok(locked_disabled, "tiles beyond highest_unlocked are disabled")
+
+
+func _check_diamond_chip() -> void:
+	var chip := Art.build_diamond_chip()
+	root.add_child(chip)
+	_ok(chip != null, "Art.build_diamond_chip() builds without error")
 
 
 func _ok(cond: bool, label: String) -> void:

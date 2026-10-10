@@ -8,6 +8,8 @@ signal picked_up(view: BlockView)
 
 enum Slot { TRAY, BOARD }
 
+const INVALID := Vector2i(-1, -1)
+
 var data: BlockData
 ## Where this block currently lives, so the drag code knows what it is doing.
 var slot: Slot = Slot.TRAY
@@ -16,6 +18,10 @@ var cell: Vector2i = Vector2i(-1, -1)
 var tray_index: int = -1
 ## Fixed blocks are part of the puzzle statement and cannot be picked up.
 var movable: bool = true
+## Live board state, set by the LevelController after spawn. Used so the
+## renderer's outline can join with adjacent blocks instead of leaving a
+## cream gap at the seam (see Art.draw_block's `board_neighbors` parameter).
+var board_state: BoardState = null
 
 var _dragging := false
 var _unhappy := false
@@ -37,7 +43,8 @@ func _draw() -> void:
 	if data == null:
 		return
 	var rect := Rect2(Vector2.ZERO, size)
-	Art.draw_block(self, rect, data, GameState.colorblind_tokens, 1.0)
+	Art.draw_block(self, rect, data, GameState.colorblind_tokens, 1.0,
+		_compute_board_neighbors())
 
 	# A violated block gets a red ring. Note this uses BoardState.is_violated,
 	# never "unsatisfied" -- an affectionate block still waiting for a friend
@@ -46,6 +53,26 @@ func _draw() -> void:
 		var r := size.x * Art.CORNER
 		draw_style_box(Art.box(Color.TRANSPARENT, r, maxf(2.0, size.x * 0.045),
 			Art.BAD_TINT), rect)
+
+
+## Board-local neighbours of this block's cell, in the same coordinates Art
+## expects (Vector2i.ZERO is the block itself, +/-1 on each axis are the
+## orthogonal neighbours). Empty when not on the board yet.
+func _compute_board_neighbors() -> Array[Vector2i]:
+	if board_state == null or slot != Slot.BOARD or cell == INVALID:
+		return ([] as Array[Vector2i])
+	var out: Array[Vector2i] = []
+	for off in BoardState.NEIGHBOUR_OFFSETS:
+		var world_nbr: Vector2i = cell + off
+		if not board_state.is_playable(world_nbr):
+			continue
+		# Single-cell block: any occupied neighbour is by definition another
+		# piece (this block's own cell is `cell`, not `world_nbr`), so an
+		# `EMPTY`-only check is enough.
+		if board_state.piece_id_at(world_nbr) == BoardState.EMPTY:
+			continue
+		out.append(off)
+	return out
 
 
 func set_unhappy(v: bool) -> void:

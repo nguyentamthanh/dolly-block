@@ -18,6 +18,20 @@ var origin := Vector2.ZERO      ## top-left of the grid, in local coordinates
 var highlight_cell: Vector2i = INVALID
 var highlight_cells: Array[Vector2i] = []
 var highlight_ok: bool = false
+## Ghost preview: the airborne piece's silhouette drawn on the cells it would
+## land on. `_ghost_can` = legal drop; highlight_ok = legal AND keeps everyone
+## happy.
+var _ghost_color := Color.TRANSPARENT
+var _ghost_can := false
+## 0..1 red flash over the last refused cells, decays in _process.
+var _flash := 0.0
+var _flash_cells: Array[Vector2i] = []
+
+## Cached result of state.playable_cells() so _draw doesn't rebuild the
+## Vector2i array every redraw. BoardState's playable set is immutable after
+## construction (blocked_cells never change), so the cache only needs to be
+## rebuilt when the state object itself is replaced.
+var _playable_cache: Array[Vector2i] = []
 
 
 func _ready() -> void:
@@ -27,6 +41,7 @@ func _ready() -> void:
 
 func set_state(s: BoardState) -> void:
 	state = s
+	_playable_cache = state.playable_cells() if state != null else ([] as Array[Vector2i])
 	relayout()
 
 
@@ -36,12 +51,27 @@ func set_state(s: BoardState) -> void:
 func relayout() -> void:
 	if state == null or state.width == 0 or state.height == 0:
 		return
-	var pad := 8.0
-	var avail := size - Vector2(pad, pad) * 2.0
-	cell_size = floorf(minf(avail.x / state.width, avail.y / state.height))
+	# Padding scales with the board rather than being a flat 8 px: on a phone
+	# the 8 px is ~3% of width and feels right, on a tablet or unfolded
+	# foldable the same 8 px is < 1% and the board bleeds into the tray
+	# backdrop. Capping it at a fraction of the short side + a small floor
+	# keeps the breathing room proportional across aspect ratios.
+	# Room for the board's chunky frame (Art.BOARD_REVEAL) plus its bevel and
+	# drop shadow, which draw outside the cell grid.
+	var short_side := minf(size.x, size.y)
+	var pad := clampf(short_side * 0.045, 18.0, 34.0)
+	# The frame overhang scales with the cells (Art.draw_board), so a flat pad
+	# isn't enough on big boards: on a 16:9 desktop the reveal + shadow reached
+	# past the bottom edge. Solve for the cell size with the overhang included.
+	var avail := size - Vector2(pad, pad) * 2.0 - Vector2(0.0, Art.BOARD_SHADOW_REACH)
+	var grid_cells := Vector2(state.width, state.height)
+	var fit_frac := avail / (grid_cells + Vector2.ONE * Art.BOARD_REVEAL_FRAC * 2.0)
+	var fit_min := (avail - Vector2.ONE * Art.BOARD_REVEAL * 2.0) / grid_cells
+	cell_size = floorf(minf(minf(fit_frac.x, fit_min.x), minf(fit_frac.y, fit_min.y)))
 	cell_size = maxf(cell_size, 8.0)
-	var grid := Vector2(state.width, state.height) * cell_size
-	origin = ((size - grid) * 0.5).floor()
+	var grid := grid_cells * cell_size
+	# Centre frame + shadow as one block, so the shadow doesn't push it low.
+	origin = ((size - grid - Vector2(0.0, Art.BOARD_SHADOW_REACH)) * 0.5).floor()
 	queue_redraw()
 
 
@@ -103,23 +133,70 @@ func set_highlight_cells(cells: Array[Vector2i], ok: bool) -> void:
 
 
 func clear_highlight() -> void:
+	_ghost_can = false
 	set_highlight_cells([], false)
+
+
+## Full drop preview for an airborne piece: `can` = the drop is legal, `happy`
+## = legal and upsets nobody, `color` = the piece's fill for the ghost.
+func set_preview(cells: Array[Vector2i], can: bool, happy: bool, color: Color) -> void:
+	if _ghost_can != can or _ghost_color != color:
+		_ghost_can = can
+		_ghost_color = color
+		queue_redraw()
+	set_highlight_cells(cells, happy)
+
+
+## Red flash over cells a piece was just refused from.
+func flash_bad(cells: Array[Vector2i]) -> void:
+	_flash_cells = cells.duplicate()
+	_flash = 1.0
+	queue_redraw()
+
+
+func _process(delta: float) -> void:
+	if _flash > 0.0:
+		_flash = maxf(0.0, _flash - delta * 3.0)
+		queue_redraw()
 
 
 func _draw() -> void:
 	if state == null:
 		return
 
-	# Frame + one clean empty surface. No per-cell boxes, dots or borders --
-	# empty cells stay empty. Any holes read as gaps in the frame, which is what
-	# makes a non-rectangular board look deliberate.
-	Art.draw_board(self, state.playable_cells(), origin, cell_size)
+	Art.draw_board(self, _playable_cache, origin, cell_size)
 
-	# Live placement feedback: tint only the cells the airborne piece covers.
+	# One ground shadow under every placed piece. Drawn here, beneath the whole
+	# piece layer, so it can only ever fall on empty wells -- never on a piece.
+	var occupied: Array[Vector2i] = []
+	for c in _playable_cache:
+		if state.piece_id_at(c) != BoardState.EMPTY:
+			occupied.append(c)
+	if not occupied.is_empty():
+		Art.draw_drop_shadow(self, origin, cell_size, occupied,
+			Color(0.04, 0.02, 0.18, 0.45), cell_size * 0.07)
+
 	var hl: Array = highlight_cells
 	if hl.is_empty() and highlight_cell != INVALID:
 		hl = [highlight_cell]
-	for pos in hl:
-		if state.is_playable(pos):
-			var tint := Art.OK_TINT if highlight_ok else Art.BAD_TINT
-			Art.draw_cell_highlight(self, cell_rect_local(pos), tint)
+	if not hl.is_empty() and _ghost_can and _ghost_color.a > 0.0:
+		# Legal drop: show where the piece will sit as a ghost -- a white rim
+		# around a softened fill, both OPAQUE (stacked translucent cell rects
+		# would show seams). Tinted red if it would upset a neighbour.
+		var ghost := _ghost_color.lerp(Color.WHITE, 0.3).lerp(Art.CELL_EMPTY, 0.2)
+		if not highlight_ok:
+			ghost = ghost.lerp(Art.BAD_TINT, 0.55)
+		Art.draw_ghost(self, origin, cell_size, hl, ghost, Color(1, 1, 1, 0.95))
+	else:
+		# Illegal drop: tint only the playable cells the piece covers.
+		for pos in hl:
+			if state.is_playable(pos):
+				var tint := Art.OK_TINT if highlight_ok else Art.BAD_TINT
+				Art.draw_cell_highlight(self, cell_rect_local(pos), tint)
+
+	if _flash > 0.0:
+		var c := Art.BAD_TINT
+		c.a = 0.7 * _flash
+		for pos in _flash_cells:
+			if state.is_playable(pos):
+				draw_style_box(Art.box(c, cell_size * 0.22), cell_rect_local(pos))

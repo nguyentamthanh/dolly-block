@@ -110,11 +110,7 @@ static func _today() -> int:
 
 
 static func save_progress() -> void:
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f == null:
-		push_warning("GameState: could not write %s" % SAVE_PATH)
-		return
-	f.store_string(JSON.stringify({
+	var text := JSON.stringify({
 		"highest_unlocked": highest_unlocked,
 		"sound": sound_enabled,
 		"diamonds": diamonds,
@@ -122,7 +118,15 @@ static func save_progress() -> void:
 		"photos": photos,
 		"unlocked_bgs": unlocked_bgs,
 		"gift_day": gift_day,
-	}))
+	})
+	# On the web the platform's storage is the copy that counts (Playgama
+	# requires it); the local file stays as a fallback everywhere.
+	PlatformSdk.save_progress_text(text)
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f == null:
+		push_warning("GameState: could not write %s" % SAVE_PATH)
+		return
+	f.store_string(text)
 	f.close()
 
 
@@ -132,8 +136,20 @@ static func load_progress() -> void:
 	var f := FileAccess.open(SAVE_PATH, FileAccess.READ)
 	if f == null:
 		return
-	var parsed: Variant = JSON.parse_string(f.get_as_text())
+	var text := f.get_as_text()
 	f.close()
+	_apply_save_text(text)
+
+
+## Loads progress fetched from somewhere other than the local file (the web
+## platform's storage) and marks it loaded so ensure_loaded() won't override it.
+static func load_from_text(text: String) -> void:
+	_loaded = true
+	_apply_save_text(text)
+
+
+static func _apply_save_text(text: String) -> void:
+	var parsed: Variant = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
 	highest_unlocked = int(parsed.get("highest_unlocked", 0))

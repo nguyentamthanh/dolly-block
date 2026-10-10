@@ -4,18 +4,42 @@ config_version=5
 [application]
 config/name="Cozy Blocks"
 config/description="A grid puzzle where every block has feelings about colors."
-run/main_scene="res://scenes/Main.tscn"
+run/main_scene="res://scenes/MainMenu.tscn"
+; Rendered by tools/make_icon.gd from the game's own art code.
+config/icon="res://assets/icon/icon.png"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 
+
+[autoload]
+
+; Playgama Bridge must stay first: Platform reads its modules in _ready().
+Bridge="*res://addons/playgama_bridge/bridge.gd"
+Platform="*res://scripts/platform/PlatformSdk.gd"
 
 [display]
 ; Portrait phone target. Board scales to fit whatever the device gives us.
 window/size/viewport_width=720
 window/size/viewport_height=1280
+; Desktop/web window opens at a size that fits a 1080p screen; the logical
+; canvas stays 720x1280 (expanded to the window's aspect).
+window/size/window_width_override=450
+window/size/window_height_override=800
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 window/handheld/orientation=1
 
+[editor_plugins]
+
+; Its export plugin copies playgama-bridge.js + config next to index.html.
+enabled=PackedStringArray("res://addons/playgama_bridge/plugin.cfg")
+
+[gui]
+; Fredoka (OFL, assets/fonts/OFL.txt) at semibold weight -- the chunky rounded
+; face hyper-casual UIs live on. Applies to every Control without per-scene work.
+theme/custom_font="res://assets/fonts/fredoka_bold.tres"
+
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+; Matches the bottom of the sky gradient so a screen-shake never flashes grey.
+environment/defaults/default_clear_color=Color(0.56, 0.42, 1, 1)

@@ -12,7 +12,21 @@ var slot_size: float = 64.0
 var _cols: int = 1
 var _rows: int = 1
 var _origin := Vector2.ZERO
+## Gap between tray slots. Computed per-layout from slot_size so the tray
+## breathes the same fractionally whether it's a tablet shelf or a tall
+## phone shelf -- a flat 8 px looked cramped on phones and airless on tablets.
 var _gap: float = 8.0
+
+## Horizontal inset of the glass shelf from the screen edges.
+const SIDE_INSET := 14.0
+const BOTTOM_INSET := 14.0
+## Extra bottom room for a phone's home-indicator bar (set by LevelController).
+var safe_bottom := 0.0:
+	set(v):
+		if is_equal_approx(safe_bottom, v):
+			return
+		safe_bottom = v
+		relayout()
 
 
 func _ready() -> void:
@@ -44,19 +58,20 @@ func relayout() -> void:
 		return
 
 	# Godot runs a layout pass before Control sizes are known, so this is called
-	# once with a near-zero rect. Bail out rather than computing nonsense --
-	# otherwise the readability warning below fires on every launch for a shelf
-	# that is about to be resized anyway, and a warning that cries wolf is worse
-	# than no warning.
+	# once with a near-zero rect. Bail out rather than computing nonsense.
 	if size.x < 1.0 or size.y < 1.0:
 		return
+
+	var area := _inner_rect()
+	var short_side := minf(area.size.x, area.size.y)
+	_gap = clampf(short_side * 0.04, 6.0, 18.0)
 
 	var best_rows := 1
 	var best_size := 0.0
 	for rows in range(1, slot_count + 1):
 		var cols := int(ceil(float(slot_count) / float(rows)))
-		var w := (size.x - _gap * (cols + 1)) / float(cols)
-		var h := (size.y - _gap * (rows + 1)) / float(rows)
+		var w := (area.size.x - _gap * (cols + 1)) / float(cols)
+		var h := (area.size.y - _gap * (rows + 1)) / float(rows)
 		var sz := minf(w, h)
 		if sz > best_size:
 			best_size = sz
@@ -72,8 +87,14 @@ func relayout() -> void:
 	var used := Vector2(
 		_cols * slot_size + _gap * (_cols - 1),
 		_rows * slot_size + _gap * (_rows - 1))
-	_origin = ((size - used) * 0.5).floor()
+	_origin = (area.position + (area.size - used) * 0.5).floor()
 	queue_redraw()
+
+
+## The glass shelf's own rect, inset from the control's edges.
+func _inner_rect() -> Rect2:
+	return Rect2(Vector2(SIDE_INSET, 4.0),
+		size - Vector2(SIDE_INSET * 2.0, 4.0 + BOTTOM_INSET + safe_bottom))
 
 
 func slot_rect_local(i: int) -> Rect2:
@@ -96,7 +117,11 @@ func contains_global(point: Vector2) -> bool:
 
 
 func _draw() -> void:
-	# Just the shelf. Empty slots are left empty -- no little boxes to make the
-	# waiting pieces look like they are already on a grid.
-	var shelf := Rect2(Vector2.ZERO, size)
-	draw_style_box(Art.box(Color(1, 1, 1, 0.45), 18.0), shelf)
+	# A frosted-glass shelf: darker base slab peeking out as a bottom lip and a
+	# lighter face. Pieces sit straight on it -- no per-slot pads.
+	var shelf := _inner_rect()
+	if shelf.size.x <= 0.0 or shelf.size.y <= 0.0:
+		return
+	var r := 34.0
+	draw_style_box(Art.box(Color(0.10, 0.05, 0.35, 0.28), r), Rect2(shelf.position + Vector2(0, 6), shelf.size))
+	draw_style_box(Art.box(Color(1, 1, 1, 0.20), r, 2.0, Color(1, 1, 1, 0.35)), shelf)
