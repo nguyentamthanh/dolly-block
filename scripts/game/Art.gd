@@ -235,6 +235,18 @@ static func draw_icon(ci: CanvasItem, kind: String, c: Vector2, r: float, col: C
 			ci.draw_style_box(box(col, r * 0.1), Rect2(c.x - r * 0.52, c.y - r * 0.1, r * 1.04, r * 0.75))
 		"lock":
 			draw_lock(ci, c, r * 1.2, col, col.darkened(0.5))
+		"help":
+			# A question mark: hook arc, short stem, dot.
+			var hc := c + Vector2(0, -r * 0.3)
+			var hr := r * 0.38
+			ci.draw_arc(hc, hr, PI * 1.05, PI * 2.4, 20, col, w, true)
+			var end := hc + Vector2(cos(PI * 2.4), sin(PI * 2.4)) * hr
+			_stroke(ci, [c + Vector2(-hr * 0.95, -r * 0.3), c + Vector2(-hr * 0.95, -r * 0.3)], col, w)
+			_stroke(ci, [end, c + Vector2(0, r * 0.25)], col, w)
+			ci.draw_circle(c + Vector2(0, r * 0.68), w * 0.62, col)
+		"close":
+			_stroke(ci, [c + Vector2(-r * 0.5, -r * 0.5), c + Vector2(r * 0.5, r * 0.5)], col, w)
+			_stroke(ci, [c + Vector2(r * 0.5, -r * 0.5), c + Vector2(-r * 0.5, r * 0.5)], col, w)
 		_:
 			ci.draw_circle(c, r * 0.4, col)
 

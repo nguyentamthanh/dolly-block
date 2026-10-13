@@ -17,6 +17,12 @@ const TRAY_MAX_CELL_FRAC := 0.5
 @onready var pieces: Control = $PieceLayer
 @onready var hud: HUD = $Layout/HUD
 @onready var win_panel: LevelCompletePanel = $WinPanel
+var ad_panel: AdRewardPanel
+var tutorial: TutorialOverlay
+## The first-level "drag this here" finger; null when not showing.
+var _guide: DragGuide
+## The "red ring means upset" tip fires once per session.
+static var _upset_tip_shown := false
 
 var level: LevelData
 var state: BoardState
@@ -72,6 +78,15 @@ func _ready() -> void:
 	win_panel.next_pressed.connect(_on_next)
 	win_panel.reward_burst.connect(_on_reward_burst)
 	win_panel.hide_panel()
+	ad_panel = AdRewardPanel.new()
+	add_child(ad_panel)
+	ad_panel.setup(sfx)
+	ad_panel.ad_finished.connect(_on_ad_finished)
+	tutorial = TutorialOverlay.new()
+	add_child(tutorial)
+	tutorial.setup(sfx)
+	tutorial.finished.connect(_on_tutorial_finished)
+	hud.help_pressed.connect(_show_tutorial)
 	hud.undo_pressed.connect(undo)
 	hud.hint_pressed.connect(hint)
 	hud.menu_pressed.connect(_on_menu_pressed)
@@ -126,6 +141,7 @@ func _apply_screen_shape() -> void:
 
 func load_level(index: int) -> void:
 	_drag.cancel()
+	_stop_guide()
 	for c in pieces.get_children():
 		c.queue_free()
 	_on_board.clear()
@@ -194,9 +210,67 @@ func load_level(index: int) -> void:
 	_refresh_unhappy()
 	_quiet_refresh = false
 	_play_intro()
-	# First levels: teach the two gestures (rotation is otherwise invisible).
-	if index < 3:
+	if not GameState.tutorial_done:
+		# First time in: the how-to-play cards, then the drag guide.
+		_show_tutorial()
+	elif index == 0 and GameState.stars_for(0) == 0:
+		_start_guide()
+	elif index < 3:
+		# Early levels: a reminder of the two gestures (rotation is otherwise
+		# invisible).
 		hud.flash_message("Drag pieces onto the board  ·  Tap one to rotate it", 3.5)
+
+
+func _show_tutorial() -> void:
+	_drag.cancel()
+	tutorial.show_tutorial()
+
+
+func _on_tutorial_finished() -> void:
+	GameState.mark_tutorial_done()
+	if level != null and level.level_index == 0:
+		_start_guide()
+
+
+## Point a finger from one tray piece to its spot in the answer. Prefers a
+## piece that already sits in the right orientation, so the move shown is a
+## plain drag; nothing is shown once the player has placed anything.
+func _start_guide() -> void:
+	_stop_guide()
+	if state == null or not accepting_input:
+		return
+	var best: PieceView = null
+	var best_target := INVALID
+	var best_cells: Array[Vector2i] = []
+	for v in _in_tray:
+		var pv := v as PieceView
+		if pv == null or pv.data.solution_world.is_empty():
+			continue
+		var d := pv.data.duplicate_piece()
+		var origin := d.orient_to_solution()
+		if not state.can_place_cells(d.world_cells(origin)):
+			continue
+		if best == null or d.rot == pv.data.rot:
+			best = pv
+			best_target = origin
+			best_cells = d.local_cells()
+			if d.rot == pv.data.rot:
+				break
+	for id in _on_board:
+		var bv = _on_board[id]
+		if bv is PieceView and (bv as PieceView).movable:
+			return  # the player already got going
+	if best == null:
+		return
+	_guide = DragGuide.new()
+	_guide.setup(self, best, best_target, best_cells)
+	add_child(_guide)
+
+
+func _stop_guide() -> void:
+	if _guide != null and is_instance_valid(_guide):
+		_guide.queue_free()
+	_guide = null
 
 
 ## Level-start choreography: the board fades up while every piece pops in, the
@@ -352,6 +426,7 @@ func placement_happy(piece_view, cell: Vector2i) -> bool:
 
 
 func on_pick_up(v) -> void:
+	_stop_guide()
 	if v is PieceView:
 		var pv: PieceView = v as PieceView
 		_pick_origin = {"slot": pv.slot, "origin": pv.origin, "tray": pv.tray_index, "id": pv.data.id}
@@ -619,6 +694,9 @@ func _mood_juice(pv: PieceView, upset: bool) -> void:
 		pv.shiver()
 		pieces.add_child(Fx.puff(centre, Color(0.35, 0.3, 0.55)))
 		sfx.play("upset", -3.0)
+		if not _upset_tip_shown and level != null and level.level_index < 5:
+			_upset_tip_shown = true
+			hud.flash_message("Red ring = upset! Check the bubble above it", 3.0)
 	else:
 		pv.hop()
 		pieces.add_child(Fx.hearts_up(centre - Vector2(0, pv.size.y * 0.25)))
@@ -701,6 +779,16 @@ func _on_reward_burst(from_global: Vector2, amount: int) -> void:
 		landed[0] += 1
 		hud.set_diamonds(start_value + int(round(float(amount) * landed[0] / n)))
 		sfx.play("diamond_tick", -2.0, 1.0 + landed[0] * 0.05))
+
+
+## The rewarded ad ended: on success the diamonds are already in GameState, so
+## fly them from the popup's gem into the HUD counter.
+func _on_ad_finished(granted: bool, from_global: Vector2) -> void:
+	if granted:
+		_on_reward_burst(from_global, GameState.AD_REWARD)
+		hud.flash_message("+%d diamonds!" % GameState.AD_REWARD)
+	else:
+		hud.flash_message("Ad not finished - no diamonds this time")
 
 
 func _on_next() -> void:
@@ -788,8 +876,12 @@ func hint() -> void:
 	# Check affordability before running the (expensive) solver -- no point
 	# solving if the player can't pay for the answer anyway.
 	if not GameState.spend_hint():
-		hud.flash_message("Not enough diamonds for a hint")
 		sfx.play("hint_deny")
+		if PlatformSdk.is_rewarded_available():
+			_drag.cancel()
+			ad_panel.show_panel()
+		else:
+			hud.flash_message("Not enough diamonds for a hint")
 		return
 	var answer := Solver.new().solve(state, remaining)
 	if answer == null:

@@ -3,7 +3,8 @@ extends Control
 
 ## Top of the game screen, hyper-casual style. Two rows float straight on the
 ## sky:
-##   row 1 -- round back button | big outlined "LEVEL N" + tier pill | gem chip
+##   row 1 -- round back + "?" (how to play) buttons | big outlined "LEVEL N"
+##            + tier pill | gem chip
 ##   row 2 -- round Undo button | "placed / total" progress bar | round Hint
 ##            button with a gem-cost badge
 ## Children are built in code so the layout has a single source of truth and
@@ -12,6 +13,7 @@ extends Control
 signal undo_pressed
 signal hint_pressed
 signal menu_pressed
+signal help_pressed
 
 ## Breathing room at the very top so the title clears a phone status bar / notch.
 const TOP_SAFE := 16
@@ -32,6 +34,7 @@ var _diamond_chip: Control
 var _progress: Control
 var _progress_label: Label
 var _hint_button: Button
+var _hint_badge: Control
 ## Set via setup(), which the parent calls AFTER _ready() (HUD is a child, so
 ## its own _ready() -- where buttons are built -- runs before the parent's).
 var _sfx: Sfx
@@ -121,6 +124,10 @@ func _build_row1(parent: Control) -> void:
 	_wire(back, func(): menu_pressed.emit())
 	bar.add_child(back)
 
+	var help := Art.icon_button("help", Color.TRANSPARENT, 64.0)
+	_wire(help, func(): help_pressed.emit())
+	bar.add_child(help)
+
 	var spacer := Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -158,15 +165,22 @@ func _build_row2(parent: Control) -> void:
 
 	_hint_button = Art.icon_button("hint", Art.ACCENT_GOLD, 64.0)
 	_wire(_hint_button, func(): hint_pressed.emit())
-	# Cost badge: a little gem + number pinned to the button's corner.
+	# Cost badge: a little gem + number pinned to the button's corner. When the
+	# player can't afford a hint it turns green and reads "AD" instead, so the
+	# rewarded-ad popup the tap opens never comes as a surprise.
 	var badge := Control.new()
+	_hint_badge = badge
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	badge.position = Vector2(34, -8)
 	badge.size = Vector2(40, 26)
 	badge.draw.connect(func():
+		var f := badge.get_theme_default_font()
+		if GameState.diamonds < GameState.HINT_COST and PlatformSdk.is_rewarded_available():
+			badge.draw_style_box(Art.box(Art.ACCENT_PRIMARY, 13.0, 2.0, Art.TEXT_OUTLINE), Rect2(Vector2.ZERO, badge.size))
+			badge.draw_string(f, Vector2(0, 20), "AD", HORIZONTAL_ALIGNMENT_CENTER, badge.size.x, 17, Art.WHITE)
+			return
 		badge.draw_style_box(Art.box(Art.ACCENT_PINK, 13.0, 2.0, Art.TEXT_OUTLINE), Rect2(Vector2.ZERO, badge.size))
 		Art.draw_gem(badge, Vector2(11, 13), 6.5)
-		var f := badge.get_theme_default_font()
 		badge.draw_string(f, Vector2(19, 20), str(GameState.HINT_COST), HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Art.WHITE))
 	_hint_button.add_child(badge)
 	row2.add_child(_hint_button)
@@ -246,6 +260,7 @@ func set_diamonds(n: int) -> void:
 	# "Count" sits two levels deep inside the chip (margin -> row -> label),
 	# so find_child (recursive) is needed rather than get_node (direct-child-only).
 	var count := _diamond_chip.find_child("Count", true, false) as Label
+	_hint_badge.queue_redraw()
 	if _shown_diamonds < 0 or not is_inside_tree() or not Fx.juice_enabled():
 		_shown_diamonds = n
 		count.text = str(n)

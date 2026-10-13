@@ -6,12 +6,14 @@ extends Node
 ## covers what Playgama moderation checks: progress goes through
 ## Bridge.storage, audio and the tree follow the platform's audio/pause
 ## signals (and stay muted + paused while an ad is on screen), game_ready is
-## sent once the menu is up, and interstitials run between levels.
+## sent once the menu is up, interstitials run between levels, and rewarded
+## ads refill diamonds on request.
 ##
 ## Everywhere else (desktop runs, headless `--script` tests) it stays out of
-## the way: progress keeps living in GameState's user:// file and ads are
-## skipped. Call sites use the static helpers, which are safe no-ops when the
-## autoload isn't in the tree.
+## the way: progress keeps living in GameState's user:// file and interstitials
+## are skipped. A rewarded ad grants at once in debug builds (so the flow can be
+## tested off the web) and is unavailable in release builds. Call sites use the
+## static helpers, which are safe no-ops when the autoload isn't in the tree.
 
 signal progress_loaded
 
@@ -32,6 +34,9 @@ var _saving := false
 ## storage.set() drops calls made mid-write, so we keep only the newest
 ## snapshot and flush it when the current write lands.
 var _pending_save := ""
+## Called once per show_rewarded() with true only if the platform reported the
+## "rewarded" state; cleared as soon as it fires.
+var _rewarded_done := Callable()
 
 
 static func get_instance() -> PlatformSdk:
@@ -53,6 +58,32 @@ static func show_interstitial() -> void:
 		sdk._bridge.advertisement.show_interstitial()
 
 
+static func is_rewarded_available() -> bool:
+	var sdk := get_instance()
+	if sdk == null:
+		return false
+	if not sdk._web:
+		return OS.is_debug_build()
+	return bool(sdk._bridge.advertisement.is_rewarded_supported)
+
+
+## Shows a rewarded ad and calls `on_done(granted)` exactly once. `granted` is
+## true only when the platform confirmed the "rewarded" state -- closing or a
+## failed ad gives false, so the reward can never be claimed without watching.
+static func show_rewarded(on_done: Callable) -> void:
+	var sdk := get_instance()
+	if sdk == null or not is_rewarded_available():
+		on_done.call(false)
+		return
+	if not sdk._web:
+		on_done.call(true)
+		return
+	if sdk._rewarded_done.is_valid():
+		return  # one ad at a time; the first request still gets its answer
+	sdk._rewarded_done = on_done
+	sdk._bridge.advertisement.show_rewarded()
+
+
 func _ready() -> void:
 	# Keeps listening for the platform's "resume" while the tree is paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -64,6 +95,7 @@ func _ready() -> void:
 	_bridge.platform.audio_state_changed.connect(_on_audio_state_changed)
 	_bridge.platform.pause_state_changed.connect(_on_pause_state_changed)
 	_bridge.advertisement.interstitial_state_changed.connect(_on_interstitial_state_changed)
+	_bridge.advertisement.rewarded_state_changed.connect(_on_rewarded_state_changed)
 	_platform_muted = not bool(_bridge.platform.is_audio_enabled)
 	_apply_audio_and_pause()
 	_bridge.storage.get(STORAGE_KEY, _on_progress_fetched)
@@ -129,6 +161,26 @@ func _on_interstitial_state_changed(state: String) -> void:
 		"closed", "failed":
 			_ad_open = false
 	_apply_audio_and_pause()
+
+
+func _on_rewarded_state_changed(state: String) -> void:
+	match state:
+		"opened":
+			_ad_open = true
+		"rewarded":
+			_finish_rewarded(true)
+		"closed", "failed":
+			_ad_open = false
+			_finish_rewarded(false)
+	_apply_audio_and_pause()
+
+
+func _finish_rewarded(granted: bool) -> void:
+	if not _rewarded_done.is_valid():
+		return
+	var cb := _rewarded_done
+	_rewarded_done = Callable()
+	cb.call(granted)
 
 
 func _apply_audio_and_pause() -> void:

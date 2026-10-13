@@ -158,8 +158,41 @@ func _run_checks() -> void:
 
 	_check_real_scoring()
 	_check_hint_cost_enforcement()
+	_check_tutorial()
 	_check_menu_scenes()
 	_check_diamond_chip()
+
+
+## A first-time player gets the how-to-play cards on load; finishing them
+## saves the flag and starts the level-1 drag guide, which a pick-up removes.
+## The HUD's "?" reopens the cards at any time.
+func _check_tutorial() -> void:
+	GameState.tutorial_done = false
+	_game.load_level(0)
+	_ok(_game.tutorial.visible, "tutorial cards open for a first-time player")
+	_ok(_game._guide == null, "no drag guide while the cards are up")
+	for i in _game.tutorial._steps.size():
+		_game.tutorial._on_next()
+	_ok(not _game.tutorial.visible, "NEXT through every card closes the tutorial")
+	_ok(GameState.tutorial_done, "finishing the tutorial marks it done")
+	_ok(_game._guide != null, "level 1 shows the drag guide after the cards")
+
+	var pv: PieceView = null
+	for v in _game._in_tray:
+		if v is PieceView:
+			pv = v
+			break
+	_game.on_pick_up(pv)
+	_ok(_game._guide == null, "picking up a piece dismisses the drag guide")
+	_game.return_home(pv)
+
+	_game.hud.help_pressed.emit()
+	_ok(_game.tutorial.visible, "the HUD's ? button reopens the tutorial")
+	_game.tutorial._close()
+
+	_game.load_level(3)
+	_ok(not _game.tutorial.visible and _game._guide == null,
+		"a returning player gets neither cards nor guide")
 
 
 ## Zero-assist completion (no hint()/undo() calls -- pieces placed directly,
