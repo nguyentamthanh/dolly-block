@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, viewport-fit=cover">
+  <title>Cozy Blocks</title>
+  <link rel="icon" type="image/png" href="./favicon.png">
+  <style>
+    html, body, #game { margin: 0; padding: 0; border: 0; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      background-color: #fad6f2;
+      overflow: hidden;
+      touch-action: none;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #game { display: block; outline: none; }
+    #game canvas { display: block; }
+    #status {
+      position: absolute; inset: 0; display: none;
+      flex-direction: column; justify-content: center; align-items: center;
+      background-color: #fad6f2; z-index: 10;
+    }
+    #status-notice {
+      margin: 0 2rem; padding: 1rem; border-radius: 0.5rem;
+      border: 1px solid #b39580; background: #f9efe6; color: #8f857d;
+      font-family: 'Noto Sans', Arial, sans-serif; line-height: 1.3; text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="game"></div>
+  <noscript>Your browser does not support JavaScript.</noscript>
+  <div id="status"><div id="status-notice"></div></div>
+
+  <script type="module" src="/src/main.ts"></script>
+  <script>
+    // No long-press menu, right-click menu or text selection on the playfield.
+    ['contextmenu', 'selectstart', 'dragstart'].forEach(function (name) {
+      document.addEventListener(name, function (e) { e.preventDefault(); });
+    });
+    // Surface any start-up failure instead of leaving a blank screen.
+    window.addEventListener('error', function (e) {
+      var n = document.getElementById('status-notice');
+      var s = document.getElementById('status');
+      if (!n || !s || s.style.display === 'flex') return;
+      n.textContent = 'The game could not start. ' + (e && e.message ? e.message : 'Please reload the page.');
+      s.style.display = 'flex';
+    });
+  </script>
+</body>
+</html>

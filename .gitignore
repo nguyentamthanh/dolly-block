@@ -1,12 +1,6 @@
-# Godot 4+ import cache / generated data
-.godot/
-export_presets.cfg
-
-# Debug renders from tests/screenshot.gd -- regenerate on demand, not source
-shots/
-
-# Web export output (zip for Playgama is built from here)
-build/
-
-# Personal Claude Code permissions, not shared config
+node_modules/
+dist/
+*.zip
+tests/out/
+.vercel/
 .claude/settings.local.json
