@@ -166,27 +166,20 @@ func _draw() -> void:
 
 	Art.draw_board(self, _playable_cache, origin, cell_size)
 
-	# One ground shadow under every placed piece. Drawn here, beneath the whole
-	# piece layer, so it can only ever fall on empty wells -- never on a piece.
-	var occupied: Array[Vector2i] = []
-	for c in _playable_cache:
-		if state.piece_id_at(c) != BoardState.EMPTY:
-			occupied.append(c)
-	if not occupied.is_empty():
-		Art.draw_drop_shadow(self, origin, cell_size, occupied,
-			Color(0.04, 0.02, 0.18, 0.45), cell_size * 0.07)
-
 	var hl: Array = highlight_cells
 	if hl.is_empty() and highlight_cell != INVALID:
 		hl = [highlight_cell]
 	if not hl.is_empty() and _ghost_can and _ghost_color.a > 0.0:
-		# Legal drop: show where the piece will sit as a ghost -- a white rim
-		# around a softened fill, both OPAQUE (stacked translucent cell rects
-		# would show seams). Tinted red if it would upset a neighbour.
-		var ghost := _ghost_color.lerp(Color.WHITE, 0.3).lerp(Art.CELL_EMPTY, 0.2)
+		# Legal drop: show where the piece will sit as a ghost -- a pale fill with
+		# a slightly deeper rim of the piece's own colour, both OPAQUE (stacked
+		# translucent cell rects would show seams). Tinted red if it would upset
+		# a neighbour.
+		var ghost := _ghost_color.lerp(Color.WHITE, 0.45)
+		var rim := _ghost_color.darkened(0.06)
 		if not highlight_ok:
 			ghost = ghost.lerp(Art.BAD_TINT, 0.55)
-		Art.draw_ghost(self, origin, cell_size, hl, ghost, Color(1, 1, 1, 0.95))
+			rim = rim.lerp(Art.BAD_TINT, 0.55)
+		Art.draw_ghost(self, origin, cell_size, hl, ghost, rim)
 	else:
 		# Illegal drop: tint only the playable cells the piece covers.
 		for pos in hl:

@@ -17,8 +17,7 @@ const SIZES := {
 	"desktop_16x9": Vector2i(2276, 1280),
 }
 const SCENES := {
-	"menu": "res://scenes/MainMenu.tscn",
-	"levels": "res://scenes/LevelSelect.tscn",
+	"timeline": "res://scenes/Timeline.tscn",
 	"game": "res://scenes/Main.tscn",
 }
 const SETTLE := 1.8

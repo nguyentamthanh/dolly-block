@@ -26,8 +26,16 @@ static var photos: Dictionary = {}
 static var unlocked_bgs: Array = [0, 1]
 static var gift_day: int = -1
 static var colorblind_tokens: bool = false
+## Language the player picked by hand ("" = follow the platform). See Loc.
+static var language: String = ""
 ## True once the how-to-play cards were shown (finished or skipped).
 static var tutorial_done: bool = false
+
+## The level being played right now, so quitting mid-level loses nothing.
+## Levels are generated from a fixed seed, so only what the player did is kept:
+## {level, placed: [[piece id, rot, origin x, origin y]], rots: {id: rot} for
+## pieces still in the tray, hints, undos}. Empty when nothing is in progress.
+static var run: Dictionary = {}
 
 static var _loaded: bool = false
 
@@ -109,11 +117,57 @@ static func complete_level(index: int, star_count: int = 3, snapshot: Array = []
 	if index >= highest_unlocked:
 		highest_unlocked = index + 1
 	diamonds += CLEAR_REWARD
+	run = {}
+	save_progress()
+
+
+static func run_for(index: int) -> Dictionary:
+	if run.is_empty() or int(run.get("level", -1)) != index:
+		return {}
+	# Saved under an older generator: that level is a different puzzle now.
+	if int(run.get("gen", 0)) != LevelGenerator.VERSION:
+		return {}
+	return run
+
+
+static func has_run() -> bool:
+	return not run.is_empty()
+
+
+static func save_run(data: Dictionary) -> void:
+	run = data
+	save_progress()
+
+
+static func clear_run() -> void:
+	if run.is_empty():
+		return
+	run = {}
 	save_progress()
 
 
 static func photo_for(index: int) -> Dictionary:
 	return photos.get(str(index), {})
+
+
+## Swap the backdrop of an already-taken photo (the win screen's arrows).
+static func set_photo_bg(index: int, bg: int) -> void:
+	var key := str(index)
+	if not photos.has(key):
+		return
+	var rec: Dictionary = photos[key]
+	rec["bg"] = bg
+	photos[key] = rec
+	save_progress()
+
+
+## Indices of every level that has a photo, ascending.
+static func photo_levels() -> Array[int]:
+	var out: Array[int] = []
+	for k in photos:
+		out.append(int(k))
+	out.sort()
+	return out
 
 
 static func bg_for_level(index: int) -> int:
@@ -137,6 +191,8 @@ static func save_progress() -> void:
 		"unlocked_bgs": unlocked_bgs,
 		"gift_day": gift_day,
 		"tutorial_done": tutorial_done,
+		"language": language,
+		"run": run,
 	})
 	# On the web the platform's storage is the copy that counts (Playgama
 	# requires it); the local file stays as a fallback everywhere.
@@ -186,3 +242,7 @@ static func _apply_save_text(text: String) -> void:
 	# Saves from before the tutorial existed: a player already past level 1
 	# knows the game, so don't ambush them with it.
 	tutorial_done = bool(parsed.get("tutorial_done", highest_unlocked > 0))
+	language = str(parsed.get("language", ""))
+	Loc.refresh()
+	var saved_run: Variant = parsed.get("run", {})
+	run = saved_run if typeof(saved_run) == TYPE_DICTIONARY else {}

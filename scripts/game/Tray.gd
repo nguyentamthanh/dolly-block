@@ -117,11 +117,14 @@ func contains_global(point: Vector2) -> bool:
 
 
 func _draw() -> void:
-	# A frosted-glass shelf: darker base slab peeking out as a bottom lip and a
-	# lighter face. Pieces sit straight on it -- no per-slot pads.
+	# A soft beige slab with a white dashed "drop zone" border inset from its
+	# edge. Pieces sit straight on it -- no per-slot pads.
 	var shelf := _inner_rect()
 	if shelf.size.x <= 0.0 or shelf.size.y <= 0.0:
 		return
-	var r := 34.0
-	draw_style_box(Art.box(Color(0.10, 0.05, 0.35, 0.28), r), Rect2(shelf.position + Vector2(0, 6), shelf.size))
-	draw_style_box(Art.box(Color(1, 1, 1, 0.20), r, 2.0, Color(1, 1, 1, 0.35)), shelf)
+	var r := 26.0
+	draw_style_box(Art.box(Art.TRAY_PANEL, r), shelf)
+	var inset := 10.0
+	var width := 3.5
+	Art.draw_dashed_round_rect(self, shelf.grow(-inset), r - inset * 0.5, Color.WHITE,
+		width, 11.0, 8.0)

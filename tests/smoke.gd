@@ -159,6 +159,7 @@ func _run_checks() -> void:
 	_check_real_scoring()
 	_check_hint_cost_enforcement()
 	_check_tutorial()
+	_check_run_save()
 	_check_menu_scenes()
 	_check_diamond_chip()
 
@@ -193,6 +194,48 @@ func _check_tutorial() -> void:
 	_game.load_level(3)
 	_ok(not _game.tutorial.visible and _game._guide == null,
 		"a returning player gets neither cards nor guide")
+
+
+## Leaving a level half-played and coming back restores the placed pieces and
+## the tray turns; solving it clears the saved run.
+func _check_run_save() -> void:
+	GameState.run = {}
+	GameState.highest_unlocked = 6
+	_game.load_level(6)
+	var pv: PieceView = null
+	for v in _game._in_tray:
+		if v is PieceView:
+			pv = v
+			break
+	var pid := pv.data.id
+	var origin := pv.data.orient_to_solution()
+	pv.set_cell_size(_game.board.cell_size)
+	_game.commit_place(pv, origin)
+	_ok(GameState.run_for(6).has("placed"), "placing a piece autosaves the run")
+
+	# Round-trip through the save file's JSON, then re-enter the level.
+	GameState.run = JSON.parse_string(JSON.stringify(GameState.run))
+	_game.load_level(6)
+	var back := _game._on_board.get(pid) as PieceView
+	_ok(back != null and back.origin == origin, "re-entering restores the placed piece")
+	_ok(_game.state.get_placed(pid).has("origin"), "restored piece is on the board state")
+	var in_tray := 0
+	for v in _game._in_tray:
+		if v != null:
+			in_tray += 1
+	_ok(in_tray == _game.level.tray_pieces.size() - 1, "restored piece left the tray")
+
+	_game.load_level(2)
+	_ok(not GameState.run_for(6).is_empty(), "replaying another level keeps the saved run")
+	_game.load_level(6)
+	for v in _game._in_tray.duplicate():
+		var tv := v as PieceView
+		if tv == null:
+			continue
+		var o := tv.data.orient_to_solution()
+		tv.set_cell_size(_game.board.cell_size)
+		_game.commit_place(tv, o)
+	_ok(_game.state.is_solved() and not GameState.has_run(), "solving the level clears the saved run")
 
 
 ## Zero-assist completion (no hint()/undo() calls -- pieces placed directly,
@@ -231,7 +274,7 @@ func _check_hint_cost_enforcement() -> void:
 	_ok(GameState.diamonds == 0, "spend_hint()'s guard does not deduct on failure")
 
 
-## The menu/level-select scenes must load independently of Main.tscn (same
+## The menu/timeline scenes must load independently of Main.tscn (same
 ## load()/instantiate() pattern used for Main.tscn above) and expose the nodes
 ## a player would actually interact with.
 func _check_menu_scenes() -> void:
@@ -243,22 +286,13 @@ func _check_menu_scenes() -> void:
 	root.add_child(menu)
 	_ok(menu.play_button != null, "MainMenu exposes its Play button")
 
-	var ls_packed: PackedScene = load("res://scenes/LevelSelect.tscn")
-	var ls := ls_packed.instantiate() as LevelSelectScreen
-	_ok(ls != null, "LevelSelect.tscn instantiates as LevelSelectScreen")
-	if ls == null:
+	var tl_packed: PackedScene = load("res://scenes/Timeline.tscn")
+	var tl := tl_packed.instantiate() as TimelineScreen
+	_ok(tl != null, "Timeline.tscn instantiates as TimelineScreen")
+	if tl == null:
 		return
-	root.add_child(ls)
-	var tile_count := ls.grid.get_child_count()
-	_ok(tile_count >= GameState.highest_unlocked + 1,
-		"level grid has at least highest_unlocked+1 tiles (%d)" % tile_count)
-
-	var locked_disabled := true
-	for i in tile_count:
-		var tile := ls.grid.get_child(i) as Button
-		if i > GameState.highest_unlocked and tile != null and not tile.disabled:
-			locked_disabled = false
-	_ok(locked_disabled, "tiles beyond highest_unlocked are disabled")
+	root.add_child(tl)
+	_ok(tl.play_button != null, "Timeline exposes its LEVEL button")
 
 
 func _check_diamond_chip() -> void:

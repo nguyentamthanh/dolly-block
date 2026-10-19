@@ -7,8 +7,16 @@ extends RefCounted
 
 const CORNER := 0.26          ## chunky "sticker" corner, as a fraction of cell_size
 const OUTLINE := Color("#2b1d4e")   ## deep plum, the sticker outline pass
-const OUTLINE_W := 0.06       ## full outline stroke width, as a fraction of cell_size
+const OUTLINE_W := 0.06       ## gap kept between neighbouring pieces/cells, as a fraction of cell_size
 const BEVEL := 0.13           ## candy "chin" depth, as a fraction of cell_size
+
+# --- Soft cream gameplay look (flat pastel pieces on a white card) ---------
+const CREAM := Color("#f9efe6")        ## gameplay backdrop
+const TRAY_PANEL := Color("#f0e7df")   ## tray slab, a step darker than the backdrop
+const HUD_BROWN := Color("#b39580")    ## round HUD buttons
+const HUD_TEXT := Color("#8f857d")     ## thin counter text on white pills
+const EYE_INK := Color("#4a3228")      ## pupils
+const BUBBLE_SHADOW := Color(0.45, 0.33, 0.25, 0.16)
 
 # --- Sky / surfaces -------------------------------------------------------
 const SKY_TOP := Color("#5cc9ff")
@@ -16,11 +24,12 @@ const SKY_MID := Color("#6b8cff")
 const SKY_BOTTOM := Color("#8f6bff")
 const CARD := Color("#fff8ef")        ## cream card surface (win panel, toasts)
 const CARD_EDGE := Color("#e3d4ff")   ## card bottom bevel
-const BOARD_PANEL := Color("#2f2a85")
-const BOARD_RIM := Color("#5048c9")
-const BOARD_SHADE := Color("#1d1957")
-const CELL_EMPTY := Color("#3a35a3")
-const CELL_LIP := Color("#221e6b")
+const BOARD_PANEL := Color("#ffffff")
+const BOARD_RIM := Color("#f1e8df")
+const BOARD_SHADE := Color("#e9dccf")
+const CELL_EMPTY := Color("#f4f4f4")
+const CELL_LIP := Color("#ebebeb")
+const CELL_DOT := Color("#d6d6d6")
 const CELL_LINE := BOARD_RIM
 
 # Kept for callers that still talk about the old cream backdrop: "BG" now means
@@ -43,6 +52,37 @@ const ACCENT_PRIMARY := Color("#3ddc84")  ## green "go" CTA (Play / Next)
 const ACCENT_BLUE := Color("#4fa8ff")
 const ACCENT_PINK := Color("#ff5fa2")
 const ACCENT_GOLD := Color("#ffc21a")
+
+
+## The Fredoka variable font at a light weight, for the thin counter text on the
+## cream HUD (the project theme font is its semibold cut).
+static func thin_font() -> FontVariation:
+	var fv := FontVariation.new()
+	fv.base_font = load("res://assets/fonts/Fredoka.ttf")
+	fv.variation_opentype = {2003265652: 400}   # 'wght'
+	# Fredoka only has basic Latin; Noto covers Vietnamese, Cyrillic, Turkish...
+	fv.fallbacks = [load("res://assets/fonts/NotoSans-Regular.ttf")]
+	return fv
+
+
+## Largest font size from `start` down to `min_size` at which `text` fits
+## `max_w` wide (and `max_h` tall when wrapping, max_h > 0). Longer translations
+## shrink instead of spilling out of fixed-size cards and buttons.
+static func fit_font_size(ci: Control, text: String, max_w: float, max_h: float,
+		start: int, min_size: int, wrap := false) -> int:
+	var font := ci.get_theme_default_font()
+	var fs := start
+	while fs > min_size:
+		var s: Vector2
+		if wrap:
+			s = font.get_multiline_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, max_w, fs)
+		else:
+			s = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		var fits := s.x <= max_w and (max_h <= 0.0 or s.y <= max_h)
+		if fits:
+			break
+		fs -= 1
+	return fs
 
 
 static func box(fill: Color, radius: float, border := 0.0,
@@ -93,17 +133,23 @@ static func style_label(l: Label, font_size: int, color := WHITE,
 ## Godot's StyleBoxFlat leaves a 1px corner nub. A BOTTOM-ONLY border avoids
 ## that (the nub needs two different-width borders meeting at a rounded
 ## corner) while still reading as a chunky 3D bevel.
-static func style_button(b: Button, accent := Color.TRANSPARENT, radius := 500.0) -> void:
+static func style_button(b: Button, accent := Color.TRANSPARENT, radius := 500.0,
+		flat := false) -> void:
 	var filled := accent.a > 0.0
 	var base := accent if filled else CARD
 	var ink := WHITE if filled else INK
-	var bevel := 8
+	# `flat` is the soft cream-theme button: a thin bevel and a warm, faint shadow
+	# instead of the deep candy one.
+	var bevel := 5 if flat else 8
 	var edge := base.darkened(0.28) if filled else CARD_EDGE.darkened(0.12)
+	if flat and filled:
+		edge = base.darkened(0.14)
+	var shadow_col := Color(0.45, 0.33, 0.25, 0.20) if flat else Color(0.08, 0.04, 0.25, 0.30)
 
 	var normal := _pill(base, radius)
-	normal.shadow_color = Color(0.08, 0.04, 0.25, 0.30)
-	normal.shadow_size = 8
-	normal.shadow_offset = Vector2(0, 6)
+	normal.shadow_color = shadow_col
+	normal.shadow_size = 5 if flat else 8
+	normal.shadow_offset = Vector2(0, 4 if flat else 6)
 	normal.border_width_bottom = bevel
 	normal.border_color = edge
 	_btn_margins(normal, 18, 10)
@@ -113,7 +159,7 @@ static func style_button(b: Button, accent := Color.TRANSPARENT, radius := 500.0
 	hover.bg_color = base.lightened(0.06)
 
 	var pressed := _pill(base.darkened(0.06), radius)
-	pressed.shadow_color = Color(0.08, 0.04, 0.25, 0.22)
+	pressed.shadow_color = Color(shadow_col, shadow_col.a * 0.7)
 	pressed.shadow_size = 3
 	pressed.shadow_offset = Vector2(0, 2)
 	# The bevel nearly flattens on press and the label drops with it, so the
@@ -161,12 +207,12 @@ static func _btn_margins(sb: StyleBoxFlat, h: float, v: float) -> void:
 ## A round candy button carrying a code-drawn glyph (see draw_icon). The glyph
 ## rides the button's own draw signal, so it drops with the pressed bevel.
 static func icon_button(kind: String, accent := Color.TRANSPARENT, diameter := 68.0,
-		glyph_color := Color.TRANSPARENT) -> Button:
+		glyph_color := Color.TRANSPARENT, flat := false) -> Button:
 	var b := Button.new()
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(diameter, diameter)
 	b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	style_button(b, accent)
+	style_button(b, accent, 500.0, flat)
 	var col := glyph_color
 	if col.a <= 0.0:
 		col = WHITE if accent.a > 0.0 else INK
@@ -177,7 +223,7 @@ static func icon_button(kind: String, accent := Color.TRANSPARENT, diameter := 6
 		var s := minf(b.size.x, b.size.y)
 		var c := Vector2(b.size.x * 0.5, b.size.y * 0.5 - 3.0 + (4.0 if down else 0.0))
 		var k: String = b.get_meta("icon_kind", kind)
-		if accent.a > 0.0:
+		if accent.a > 0.0 and not flat:
 			# A soft outline-coloured offset copy reads as the glyph's "ink" edge.
 			draw_icon(b, k, c + Vector2(0, 2), s * 0.30, accent.darkened(0.45))
 		draw_icon(b, k, c, s * 0.30, col))
@@ -192,6 +238,9 @@ static func draw_icon(ci: CanvasItem, kind: String, c: Vector2, r: float, col: C
 		"back":
 			_stroke(ci, [c + Vector2(r * 0.3, -r * 0.62), c + Vector2(-r * 0.3, 0),
 				c + Vector2(r * 0.3, r * 0.62)], col, w)
+		"forward":
+			_stroke(ci, [c + Vector2(-r * 0.3, -r * 0.62), c + Vector2(r * 0.3, 0),
+				c + Vector2(-r * 0.3, r * 0.62)], col, w)
 		"undo":
 			var cc := c + Vector2(r * 0.08, r * 0.1)
 			var rr := r * 0.62
@@ -244,6 +293,25 @@ static func draw_icon(ci: CanvasItem, kind: String, c: Vector2, r: float, col: C
 			_stroke(ci, [c + Vector2(-hr * 0.95, -r * 0.3), c + Vector2(-hr * 0.95, -r * 0.3)], col, w)
 			_stroke(ci, [end, c + Vector2(0, r * 0.25)], col, w)
 			ci.draw_circle(c + Vector2(0, r * 0.68), w * 0.62, col)
+		"search":
+			# Magnifier: lens ring plus a short rounded handle.
+			var lc := c + Vector2(-r * 0.12, -r * 0.14)
+			ci.draw_arc(lc, r * 0.52, 0.0, TAU, 28, col, w * 1.1, true)
+			_stroke(ci, [lc + Vector2(r * 0.38, r * 0.38), c + Vector2(r * 0.8, r * 0.8)], col, w * 1.3)
+			ci.draw_arc(lc, r * 0.3, PI * 1.1, PI * 1.55, 8, Color(col, col.a * 0.55), w * 0.5, true)
+		"menu":
+			for k in [-1.0, 0.0, 1.0]:
+				_stroke(ci, [c + Vector2(-r * 0.68, k * r * 0.5), c + Vector2(r * 0.68, k * r * 0.5)], col, w * 1.1)
+		"globe":
+			# Ring, equator and one meridian.
+			var gr := r * 0.8
+			ci.draw_arc(c, gr, 0.0, TAU, 32, col, w * 0.8, true)
+			_stroke(ci, [c + Vector2(-gr, 0), c + Vector2(gr, 0)], col, w * 0.7)
+			var mer := PackedVector2Array()
+			for k in 25:
+				var a := TAU * k / 24.0
+				mer.append(c + Vector2(cos(a) * gr * 0.42, sin(a) * gr))
+			ci.draw_polyline(mer, col, w * 0.7, true)
 		"close":
 			_stroke(ci, [c + Vector2(-r * 0.5, -r * 0.5), c + Vector2(r * 0.5, r * 0.5)], col, w)
 			_stroke(ci, [c + Vector2(r * 0.5, -r * 0.5), c + Vector2(-r * 0.5, r * 0.5)], col, w)
@@ -259,16 +327,22 @@ static func _stroke(ci: CanvasItem, pts: Array, col: Color, w: float) -> void:
 		ci.draw_circle(p, w * 0.5, col)
 
 
-## A "diamond icon + count" pill, shared by HUD/MainMenu/LevelSelect so the
+## A "diamond icon + count" pill, shared by HUD/MainMenu/Timeline so the
 ## widget is built once and stays visually identical everywhere. The count
 ## Label is named "Count", nested a couple of levels inside the chip's
 ## margin/row wrappers -- callers update it via a recursive lookup:
 ##   (chip.find_child("Count", true, false) as Label).text = str(n)
-static func build_diamond_chip() -> Control:
+static func build_diamond_chip(light := false) -> Control:
 	var chip := PanelContainer.new()
 	var sb := box(Color(0.10, 0.05, 0.32, 0.38), 26.0)
 	sb.border_width_bottom = 3
 	sb.border_color = Color(0.05, 0.02, 0.2, 0.35)
+	if light:
+		# Cream-theme variant: a white pill with a faint warm shadow.
+		sb = box(WHITE, 26.0)
+		sb.shadow_color = Color(0.45, 0.33, 0.25, 0.14)
+		sb.shadow_size = 6
+		sb.shadow_offset = Vector2(0, 3)
 	chip.add_theme_stylebox_override("panel", sb)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.custom_minimum_size = Vector2(108, 52)
@@ -296,7 +370,11 @@ static func build_diamond_chip() -> Control:
 	label.name = "Count"
 	label.text = "0"
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	style_label(label, 26, WHITE, TEXT_OUTLINE, 6)
+	if light:
+		style_label(label, 26, HUD_TEXT, TEXT_OUTLINE, 0)
+		label.add_theme_color_override("font_shadow_color", Color.TRANSPARENT)
+	else:
+		style_label(label, 26, WHITE, TEXT_OUTLINE, 6)
 	row.add_child(label)
 
 	return chip
@@ -340,15 +418,14 @@ static func board_frame_color() -> Color:
 	return BOARD_PANEL
 
 
-## Board panel + inset empty cells. The panel is a chunky rounded slab with a
-## dark bevel and a soft drop shadow; every playable cell is a rounded well
-## with a darker top lip, the classic block-puzzle grid. Holes simply get no
-## well, so they read as solid panel.
-const BOARD_REVEAL := 12.0
+## Board card + empty cells. The card is a white rounded slab with a faint warm
+## shadow; every playable cell is a light-grey rounded tile with a small dot in
+## its middle. Holes simply get no tile, so they read as bare card.
+const BOARD_REVEAL := 14.0
 ## The frame's reveal grows with the cells (never below BOARD_REVEAL).
-const BOARD_REVEAL_FRAC := 0.12
+const BOARD_REVEAL_FRAC := 0.3
 ## How far the board's drop shadow reaches below the frame (offset + grow).
-const BOARD_SHADOW_REACH := 18.0
+const BOARD_SHADOW_REACH := 14.0
 
 static func draw_board(ci: CanvasItem, cells: Array, origin_px: Vector2,
 		cell_size: float) -> void:
@@ -366,25 +443,59 @@ static func draw_board(ci: CanvasItem, cells: Array, origin_px: Vector2,
 	var span := Vector2(maxc.x - minc.x + 1, maxc.y - minc.y + 1) * cell_size
 	var reveal := maxf(BOARD_REVEAL, cell_size * BOARD_REVEAL_FRAC)
 	var frame := Rect2(tl - Vector2(reveal, reveal), span + Vector2(reveal, reveal) * 2.0)
-	var frame_r := roundf(cell_size * 0.28) + reveal * 0.6
+	var frame_r := roundf(cell_size * 0.2) + reveal * 0.4
 
-	# Soft drop shadow, then the bevel slab, then the face with a lighter rim.
+	# A faint warm drop shadow, then the white card.
 	var shadow := frame
-	shadow.position.y += BOARD_SHADOW_REACH - 4.0
-	ci.draw_style_box(box(Color(0.06, 0.02, 0.22, 0.30), frame_r + 4.0), shadow.grow(4.0))
-	var bevel := frame
-	bevel.position.y += 9.0
-	ci.draw_style_box(box(BOARD_SHADE, frame_r), bevel)
-	ci.draw_style_box(box(BOARD_PANEL, frame_r, 3.0, BOARD_RIM), frame)
+	shadow.position.y += 6.0
+	ci.draw_style_box(box(Color(0.45, 0.33, 0.25, 0.10), frame_r + 4.0), shadow.grow(4.0))
+	ci.draw_style_box(box(BOARD_PANEL, frame_r), frame)
 
-	var inset := maxf(1.5, cell_size * 0.045)
-	var lip := maxf(2.0, cell_size * 0.07)
-	var well_r := roundf(cell_size * 0.2)
+	var inset := maxf(1.5, cell_size * OUTLINE_W * 0.5)
+	var tile_r := roundf(cell_size * 0.2)
+	var dot_r := maxf(2.0, cell_size * 0.04)
 	for c in cells:
 		var cr := Rect2(origin_px + Vector2(c.x, c.y) * cell_size, Vector2(cell_size, cell_size)).grow(-inset)
-		ci.draw_style_box(box(CELL_LIP, well_r), cr)
-		var face := Rect2(cr.position + Vector2(0, lip), cr.size - Vector2(0, lip))
-		ci.draw_style_box(box(CELL_EMPTY, well_r), face)
+		ci.draw_style_box(box(CELL_EMPTY, tile_r), cr)
+		ci.draw_circle(cr.get_center(), dot_r, CELL_DOT)
+
+
+## A dashed rounded-rectangle outline, walked along its perimeter (the tray's
+## "drop zone" border). Straight edges are the implicit chords between the four
+## sampled corner arcs.
+static func draw_dashed_round_rect(ci: CanvasItem, rect: Rect2, radius: float,
+		color: Color, width: float, dash: float, gap: float) -> void:
+	var r := minf(radius, minf(rect.size.x, rect.size.y) * 0.5)
+	var arcs := [
+		[Vector2(rect.end.x - r, rect.position.y + r), -PI * 0.5],
+		[Vector2(rect.end.x - r, rect.end.y - r), 0.0],
+		[Vector2(rect.position.x + r, rect.end.y - r), PI * 0.5],
+		[Vector2(rect.position.x + r, rect.position.y + r), PI],
+	]
+	var pts := PackedVector2Array()
+	for arc in arcs:
+		for s in 9:
+			pts.append((arc[0] as Vector2) + Vector2.from_angle((arc[1] as float) + PI * 0.5 * s / 8.0) * r)
+	pts.append(pts[0])
+
+	var drawing := true
+	var remain := dash
+	for i in pts.size() - 1:
+		var a := pts[i]
+		var b := pts[i + 1]
+		var seg := a.distance_to(b)
+		if seg < 0.001:
+			continue
+		var pos := 0.0
+		while pos < seg:
+			var step := minf(remain, seg - pos)
+			if drawing:
+				ci.draw_line(a.lerp(b, pos / seg), a.lerp(b, (pos + step) / seg), color, width, true)
+			pos += step
+			remain -= step
+			if remain <= 0.001:
+				drawing = not drawing
+				remain = dash if drawing else gap
 
 
 ## A soft tint on one cell, used while a piece hovers over it.
@@ -478,83 +589,28 @@ static func draw_block(ci: CanvasItem, rect: Rect2, data: BlockData, colorblind:
 		int(data.mood), int(data.target_color), false, alpha, board_neighbors)
 
 
-## The main piece renderer. Pass order: soft shadow -> sticker outline ->
-## candy body with a darker bevel "chin" along every bottom edge -> glossy top
-## highlight -> eyes -> mood bubble -> unhappy ring.
+## The main piece renderer, flat pastel style: one fused rounded silhouette in
+## the piece's colour (no outline, no gloss, no shadow), then eyes -> mood
+## bubble -> unhappy ring. Neighbouring pieces keep a thin gap between them.
 ##
 ## `blink` (0..1) squashes the eyes shut, `happy_eyes` swaps them for ^ ^ arcs,
 ## `ring_pulse` scales the unhappy ring's opacity so callers can throb it.
+## `with_shadow` is kept for callers; flat pieces cast none.
 static func draw_polyomino(ci: CanvasItem, origin_px: Vector2, cell_size: float,
 		cells: Array[Vector2i], color_id: int, eye: Vector2i,
 		mood: int, target: int, unhappy: bool, alpha: float = 1.0,
 		board_neighbors: Array = [], blink: float = 0.0, happy_eyes: bool = false,
-		ring_pulse: float = 1.0, with_shadow: bool = true) -> void:
+		ring_pulse: float = 1.0, _with_shadow: bool = true) -> void:
 	if cells.is_empty():
 		return
 	var body := Palette.fill(color_id)
 	body.a = alpha
-	var shade := Palette.shade(color_id).darkened(0.08)
-	shade.a = alpha
-	var outline_col := Color(OUTLINE.r, OUTLINE.g, OUTLINE.b, alpha)
 
-	# Soft drop shadow. Pieces sitting on the board pass with_shadow = false:
-	# the board draws one ground shadow under ALL placed pieces instead, so a
-	# piece's shadow can never be painted on top of the piece below it.
-	if with_shadow:
-		draw_drop_shadow(ci, origin_px, cell_size, cells,
-			Color(0.05, 0.02, 0.2, 0.25 * alpha), cell_size * 0.07)
-
-	# Outline, body and bevel chin all come from ONE polygon per piece (see
-	# _piece_polys): the stroke is the shape grown by W/2 and the body the shape
-	# shrunk by W/2, so the outline is exactly W wide on every edge, and two
-	# pieces sharing an edge overlap into a single stroke of that same W.
+	# One polygon per piece (see _piece_polys): the body is the shape shrunk by
+	# half the gap, so two pieces on the board never touch.
 	var polys := _piece_polys(cells, board_neighbors, cell_size)
 	var xf := Transform2D(0.0, origin_px)
-	_fill_polys(ci, polys.outer, xf, outline_col)
-	_fill_polys(ci, polys.body, xf, shade)
-	_fill_polys(ci, polys.top, xf, body)
-
-	# Gloss: one rounded white strip per horizontal run of exposed top edges
-	# (no piece cell AND no board neighbour above), so a wide piece gets a
-	# single continuous highlight and edges tucked under a neighbour get none.
-	var occupied := {}
-	for c in cells:
-		occupied[c] = true
-	for c in board_neighbors:
-		occupied[c] = true
-	var half_w := cell_size * OUTLINE_W * 0.5
-	var gloss := Color(1, 1, 1, 0.38 * alpha)
-	var gh := cell_size * 0.1
-	var rows := {}
-	for c in cells:
-		if occupied.has(c + Vector2i(0, -1)):
-			continue
-		if not rows.has(c.y):
-			rows[c.y] = []
-		rows[c.y].append(c.x)
-	for row in rows:
-		var y: int = row
-		var xs: Array = rows[row]
-		xs.sort()
-		var start: int = xs[0]
-		for i in xs.size():
-			var x: int = xs[i]
-			var last := i == xs.size() - 1
-			if last or xs[i + 1] != x + 1:
-				var x0 := origin_px.x + start * cell_size + cell_size * 0.2
-				var x1 := origin_px.x + (x + 1) * cell_size - cell_size * 0.2
-				var gr := Rect2(x0, origin_px.y + y * cell_size + half_w + cell_size * 0.07, x1 - x0, gh)
-				ci.draw_style_box(box(gloss, gh * 0.5), gr)
-				if not last:
-					start = xs[i + 1]
-	# A little specular dot at the top-left-most cell.
-	var tl_cell := cells[0]
-	for c in cells:
-		if c.y < tl_cell.y or (c.y == tl_cell.y and c.x < tl_cell.x):
-			tl_cell = c
-	var tl_px := origin_px + Vector2(tl_cell.x, tl_cell.y) * cell_size
-	ci.draw_circle(tl_px + Vector2(cell_size * 0.15, cell_size * 0.28), cell_size * 0.045,
-		Color(1, 1, 1, 0.55 * alpha))
+	_fill_polys(ci, polys.body, xf, body)
 
 	var eye_rect := Rect2(origin_px + Vector2(eye) * cell_size, Vector2(cell_size, cell_size))
 	draw_eyes(ci, eye_rect, alpha, blink, happy_eyes)
@@ -582,15 +638,16 @@ const AA_FEATHER := 1.0
 
 
 ## The polygons one piece is drawn from, relative to its origin:
-##   outer -- the shape grown by W/2 (filled with the outline colour)
-##   body  -- the shape shrunk by W/2 (filled with the shade colour)
-##   top   -- body ∩ body-shifted-up-by-BEVEL (body colour; leaves the chin)
+##   outer -- the shape grown by W/2 (the drop-target ghost's rim)
+##   body  -- the shape shrunk by W/2 (the piece's fill)
 ##   ring  -- body shrunk further (the unhappy ring's path)
 ## `shape` is the union of the piece's cells with every free convex corner
-## rounded. A corner stays sharp when another piece shares either edge that
-## meets there, so neighbours always butt flush against each other.
-static func _piece_polys(cells: Array, neighbors: Array, cs: float) -> Dictionary:
-	var key := "%s|%s|%.2f" % [str(cells), str(neighbors), snappedf(cs, 0.25)]
+## rounded.
+static func _piece_polys(cells: Array, _neighbors: Array, cs: float) -> Dictionary:
+	# Neighbouring pieces no longer change the shape: every free corner stays
+	# rounded and the gap between pieces comes from the body inset, so the cache
+	# key ignores them.
+	var key := "%s|%.2f" % [str(cells), snappedf(cs, 0.25)]
 	if _poly_cache.has(key):
 		return _poly_cache[key]
 	if _poly_cache.size() > 512:
@@ -599,10 +656,7 @@ static func _piece_polys(cells: Array, neighbors: Array, cs: float) -> Dictionar
 	var mine := {}
 	for c in cells:
 		mine[c] = true
-	var others := {}
-	for c in neighbors:
-		if not mine.has(c):
-			others[c] = true
+	var others := {}   # kept empty on purpose, see the cache key above
 
 	# 1. Union of the cell squares (pixels, origin at 0). Cells can arrive in
 	# any order, so a square is only absorbed once it touches the shape grown
@@ -662,14 +716,10 @@ static func _piece_polys(cells: Array, neighbors: Array, cs: float) -> Dictionar
 	var half_w := cs * OUTLINE_W * 0.5
 	var outer := Geometry2D.offset_polygon(rounded, maxf(0.5, half_w - AA_FEATHER * 0.5), Geometry2D.JOIN_MITER)
 	var body := Geometry2D.offset_polygon(rounded, -half_w, Geometry2D.JOIN_MITER)
-	var top: Array = []
 	var ring: Array = []
-	var bev := cs * BEVEL
 	for b in body:
-		var up := Transform2D(0.0, Vector2(0, -bev)) * (b as PackedVector2Array)
-		top.append_array(Geometry2D.intersect_polygons(b, up))
 		ring.append_array(Geometry2D.offset_polygon(b, -cs * 0.06, Geometry2D.JOIN_ROUND))
-	var out := {"outer": outer, "body": body, "top": top, "ring": ring}
+	var out := {"outer": outer, "body": body, "ring": ring}
 	_poly_cache[key] = out
 	return out
 
@@ -758,10 +808,10 @@ static func _bubble_attach(origin_px: Vector2, cs: float, cells: Array[Vector2i]
 static func draw_eyes(ci: CanvasItem, rect: Rect2, alpha: float, blink: float = 0.0,
 		happy: bool = false) -> void:
 	var s := minf(rect.size.x, rect.size.y)
-	var c := rect.get_center() + Vector2(0, s * 0.04)
-	var eye_r := s * 0.22
-	var sep := s * 0.26
-	var ink := Color(INK.r, INK.g, INK.b, alpha)
+	var c := rect.get_center() + Vector2(0, -s * 0.02)
+	var eye_r := s * 0.165
+	var sep := s * 0.27
+	var ink := Color(EYE_INK.r, EYE_INK.g, EYE_INK.b, alpha)
 	for side in [-1.0, 1.0]:
 		var ec := c + Vector2(side * sep, 0)
 		if happy:
@@ -773,15 +823,13 @@ static func draw_eyes(ci: CanvasItem, rect: Rect2, alpha: float, blink: float = 
 			ci.draw_line(ec + Vector2(-eye_r * 0.8, 0), ec + Vector2(eye_r * 0.8, 0), ink,
 				maxf(2.0, eye_r * 0.22), true)
 			continue
-		_ellipse(ci, ec, eye_r + maxf(1.0, eye_r * 0.1), (eye_r + maxf(1.0, eye_r * 0.1)) * sy, ink)
+		# Soft white eye with a big brown pupil and one catch-light, no outline.
 		_ellipse(ci, ec, eye_r, eye_r * sy, Color(1, 1, 1, alpha))
-		var pupil := ec + Vector2(side * eye_r * 0.06, eye_r * 0.10 * sy)
-		_ellipse(ci, pupil, eye_r * 0.58, eye_r * 0.58 * sy, ink)
+		var pupil := ec + Vector2(side * eye_r * 0.04, eye_r * 0.06 * sy)
+		_ellipse(ci, pupil, eye_r * 0.66, eye_r * 0.66 * sy, ink)
 		if sy > 0.5:
-			ci.draw_circle(pupil + Vector2(-eye_r * 0.22, -eye_r * 0.26 * sy),
-				eye_r * 0.18, Color(1, 1, 1, alpha))
-			ci.draw_circle(pupil + Vector2(eye_r * 0.22, -eye_r * 0.06 * sy),
-				eye_r * 0.08, Color(1, 1, 1, alpha * 0.85))
+			ci.draw_circle(pupil + Vector2(-eye_r * 0.2, -eye_r * 0.24 * sy),
+				eye_r * 0.17, Color(1, 1, 1, alpha))
 
 
 static func _ellipse(ci: CanvasItem, c: Vector2, rx: float, ry: float, col: Color) -> void:
@@ -799,10 +847,10 @@ static func _ellipse(ci: CanvasItem, c: Vector2, rx: float, ry: float, col: Colo
 ## Thought-bubble geometry, in cells: radius, centre offset from the attach
 ## point, and outline width. Shared with thought_overhang_cells() so layout
 ## code reserves exactly the room the bubble draws into.
-const THOUGHT_R := 0.21
-const THOUGHT_DX := 0.15   ## x offset of the bubble centre, in radii
-const THOUGHT_DY := -1.15  ## y offset of the bubble centre, in radii
-const THOUGHT_OUTLINE := 0.03
+const THOUGHT_R := 0.29
+const THOUGHT_DX := 0.0    ## x offset of the bubble centre, in radii
+const THOUGHT_DY := -0.55  ## y offset of the bubble centre, in radii
+const THOUGHT_OUTLINE := 0.0
 
 
 ## How far a mood piece's thought bubble pokes outside the piece's own bbox,
@@ -820,17 +868,17 @@ static func draw_thought(ci: CanvasItem, attach: Vector2, cell_size: float,
 	var r := cell_size * THOUGHT_R
 	var bubble := attach + Vector2(r * THOUGHT_DX, r * THOUGHT_DY)
 	var white := Color(1, 1, 1, alpha)
-	var outline_col := Color(OUTLINE.r, OUTLINE.g, OUTLINE.b, alpha)
-	var trail := attach + Vector2(-r * 0.15, r * 0.05)
-	var mid := attach.lerp(bubble, 0.45)
-	var ow := maxf(2.0, cell_size * THOUGHT_OUTLINE)
-	# Outline discs first, then white fills: a solid sticker edge with no
-	# hairline arcs.
-	ci.draw_circle(trail, r * 0.16 + ow, outline_col)
-	ci.draw_circle(mid, r * 0.22 + ow, outline_col)
-	ci.draw_circle(bubble, r + ow, outline_col)
-	ci.draw_circle(trail, r * 0.16, white)
-	ci.draw_circle(mid, r * 0.22, white)
+	var shadow := Color(BUBBLE_SHADOW.r, BUBBLE_SHADOW.g, BUBBLE_SHADOW.b, BUBBLE_SHADOW.a * alpha)
+	var trail := attach + Vector2(-r * 0.3, r * 0.42)
+	var mid := attach.lerp(bubble, 0.5) + Vector2(-r * 0.1, r * 0.3)
+	var sh := Vector2(0.0, maxf(1.5, r * 0.1))
+	# A faint offset disc under each white one gives the soft lift of the
+	# reference, with no hard outline.
+	ci.draw_circle(trail + sh, r * 0.14, shadow)
+	ci.draw_circle(mid + sh, r * 0.2, shadow)
+	ci.draw_circle(bubble + sh, r * 1.02, shadow)
+	ci.draw_circle(trail, r * 0.14, white)
+	ci.draw_circle(mid, r * 0.2, white)
 	ci.draw_circle(bubble, r, white)
 	var icon := Palette.fill(target)
 	icon.a = alpha
@@ -891,6 +939,30 @@ static func draw_star_fancy(ci: CanvasItem, c: Vector2, r: float, filled: bool) 
 	ci.draw_circle(c + Vector2(-r * 0.22, -r * 0.3), r * 0.12, Color(1, 1, 1, 0.85))
 
 
+## A flat gift box: red body and lid, gold ribbon and a bow. `c` is the centre,
+## `s` the box's width.
+static func draw_gift(ci: CanvasItem, c: Vector2, s: float) -> void:
+	var red := Color("#d65c5c")
+	var red_dark := Color("#bf4a4a")
+	var gold := Color("#f2b84b")
+	var body := Rect2(c + Vector2(-s * 0.42, -s * 0.06), Vector2(s * 0.84, s * 0.5))
+	var lid := Rect2(c + Vector2(-s * 0.48, -s * 0.28), Vector2(s * 0.96, s * 0.26))
+	var drop := body.grow(s * 0.02)
+	drop.position.y += s * 0.05
+	ci.draw_style_box(box(Color(0.45, 0.33, 0.25, 0.14), s * 0.08), drop)
+	ci.draw_style_box(box(red, s * 0.07), body)
+	ci.draw_style_box(box(red_dark, s * 0.07), Rect2(body.position + Vector2(0, body.size.y - s * 0.1), Vector2(body.size.x, s * 0.1)))
+	ci.draw_style_box(box(red, s * 0.07), lid)
+	var rw := s * 0.16
+	ci.draw_rect(Rect2(c.x - rw * 0.5, body.position.y, rw, body.size.y), gold)
+	ci.draw_rect(Rect2(c.x - rw * 0.5, lid.position.y, rw, lid.size.y), gold)
+	# Bow: two loops and a knot.
+	var bow := c + Vector2(0, -s * 0.3)
+	ci.draw_arc(bow + Vector2(-s * 0.13, -s * 0.07), s * 0.12, 0.0, TAU, 20, gold, maxf(2.0, s * 0.05), true)
+	ci.draw_arc(bow + Vector2(s * 0.13, -s * 0.07), s * 0.12, 0.0, TAU, 20, gold, maxf(2.0, s * 0.05), true)
+	ci.draw_circle(bow, s * 0.06, gold)
+
+
 ## A tiny padlock glyph used on locked level tiles. `c` is the centre of the
 ## lock body; total bounding box ~ 2r wide.
 static func draw_lock(ci: CanvasItem, c: Vector2, r: float,
@@ -909,12 +981,13 @@ static func draw_lock(ci: CanvasItem, c: Vector2, r: float,
 	ci.draw_circle(Vector2(c.x, c.y + body_r * 0.3), body_r * 0.2, outline)
 
 
-## Accent colours for the four difficulty tiers in LevelSelect.
+## Accent colours for the four difficulty tiers (the HUD's tier pill).
 const TIER_COLORS := [
 	Color("#4fc3ff"),   # Tier 0 - Warm-up (sky blue)
 	Color("#ff9d42"),   # Tier 1 - Cozy (orange)
 	Color("#ff5fa2"),   # Tier 2 - Tricky (pink)
 	Color("#b06bff"),   # Tier 3 - Tangled (violet)
+	Color("#e5334b"),   # Tier 4 - Nightmare (red)
 ]
 
 

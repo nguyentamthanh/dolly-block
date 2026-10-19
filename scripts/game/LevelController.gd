@@ -205,6 +205,7 @@ func load_level(index: int) -> void:
 			v3.slot = PieceView.Slot.TRAY
 			v3.tray_index = i
 			_in_tray.append(v3)
+	_restore_run(index)
 	_relayout(0.0)
 	_quiet_refresh = true
 	_refresh_unhappy()
@@ -218,7 +219,72 @@ func load_level(index: int) -> void:
 	elif index < 3:
 		# Early levels: a reminder of the two gestures (rotation is otherwise
 		# invisible).
-		hud.flash_message("Drag pieces onto the board  ·  Tap one to rotate it", 3.5)
+		hud.flash_message(Loc.t("hud_drag_hint"), 3.5)
+
+
+## Put back what the player had done on this level before leaving it: the
+## tray pieces' turns, the pieces already on the board, and the assist counts
+## (so quitting and returning can't be used to dodge the star penalty).
+func _restore_run(index: int) -> void:
+	var saved := GameState.run_for(index)
+	if saved.is_empty():
+		return
+	_hints_used = int(saved.get("hints", 0))
+	_undos_used = int(saved.get("undos", 0))
+	var rots: Dictionary = saved.get("rots", {})
+	for v in _in_tray:
+		var tv := v as PieceView
+		if tv != null and rots.has(str(tv.data.id)):
+			tv.data.rot = int(rots[str(tv.data.id)]) & 3
+	for entry in saved.get("placed", []):
+		if typeof(entry) != TYPE_ARRAY or entry.size() < 4:
+			continue
+		var pid := int(entry[0])
+		for i in _in_tray.size():
+			var pv := _in_tray[i] as PieceView
+			if pv == null or pv.data.id != pid:
+				continue
+			pv.data.rot = int(entry[1]) & 3
+			var cell := Vector2i(int(entry[2]), int(entry[3]))
+			if not state.can_place_cells(pv.data.world_cells(cell)):
+				break
+			_in_tray[i] = null
+			state.place_piece(pv.data, cell)
+			_on_board[pid] = pv
+			pv.slot = PieceView.Slot.BOARD
+			pv.origin = cell
+			break
+
+
+## Write the current board to the save. Called after every move; a no-op once
+## the level is solved (complete_level() already cleared the run) and on
+## replays of cleared levels, which shouldn't displace the frontier level.
+func _save_run() -> void:
+	if level == null or state == null or not accepting_input:
+		return
+	if level.level_index != GameState.highest_unlocked:
+		return
+	var placed: Array = []
+	for id in _on_board:
+		var pv := _on_board[id] as PieceView
+		if pv != null and pv.movable:
+			placed.append([pv.data.id, pv.data.rot, pv.origin.x, pv.origin.y])
+	var rots := {}
+	for v in _in_tray:
+		var tv := v as PieceView
+		if tv != null and tv.data.rot != 0:
+			rots[str(tv.data.id)] = tv.data.rot
+	if placed.is_empty() and rots.is_empty() and _hints_used == 0 and _undos_used == 0:
+		GameState.clear_run()
+		return
+	GameState.save_run({
+		"level": level.level_index,
+		"gen": LevelGenerator.VERSION,
+		"placed": placed,
+		"rots": rots,
+		"hints": _hints_used,
+		"undos": _undos_used,
+	})
 
 
 func _show_tutorial() -> void:
@@ -465,6 +531,7 @@ func commit_place(v, cell: Vector2i) -> void:
 		_place_juice(pv, pos + Vector2(pv.size) * 0.5)
 		_push_undo(pv)
 		_refresh_unhappy()
+		_save_run()
 		_check_win()
 	elif v is BlockView:
 		var bv: BlockView = v as BlockView
@@ -500,7 +567,7 @@ func _place_juice(pv: PieceView, board_local: Vector2) -> void:
 	pieces.add_child(Fx.star_sparkle(centre, Color(1, 1, 0.85), 6, 0.9))
 	Fx.shake(self, 3.0 + minf(_combo, 5) * 0.6, 0.16)
 	if _combo >= 3 and _combo % 3 == 0:
-		var words := ["Nice!", "Great!", "Awesome!", "Amazing!"]
+		var words := [Loc.t("praise_nice"), Loc.t("praise_great"), Loc.t("praise_awesome"), Loc.t("praise_amazing")]
 		var word: String = words[mini(_combo / 3 - 1, words.size() - 1)]
 		add_child(Fx.float_text(word, centre + pieces.global_position - global_position - Vector2(0, pv.size.y * 0.6),
 			Art.STAR, 48, 70.0, 0.3))
@@ -568,6 +635,7 @@ func send_to_tray(v) -> void:
 	if from_board:
 		_push_undo(v)  # so Undo can drop it back where it was
 	_refresh_unhappy()
+	_save_run()
 
 
 func _to_tray(v) -> void:
@@ -634,6 +702,7 @@ func _fit_in_tray_slot(pv: PieceView, duration: float = 0.13) -> void:
 ## piece's width/height swap on a 90-degree turn).
 func on_rotate(pv: PieceView) -> void:
 	_fit_in_tray_slot(pv)
+	_save_run()
 
 
 func _detach_from_tray(v) -> void:
@@ -696,7 +765,7 @@ func _mood_juice(pv: PieceView, upset: bool) -> void:
 		sfx.play("upset", -3.0)
 		if not _upset_tip_shown and level != null and level.level_index < 5:
 			_upset_tip_shown = true
-			hud.flash_message("Red ring = upset! Check the bubble above it", 3.0)
+			hud.flash_message(Loc.t("hud_red_ring"), 3.0)
 	else:
 		pv.hop()
 		pieces.add_child(Fx.hearts_up(centre - Vector2(0, pv.size.y * 0.25)))
@@ -746,7 +815,7 @@ func _check_win() -> void:
 			if is_instance_valid(pv):
 				pieces.add_child(Fx.star_sparkle(spark_at, Color(1, 0.95, 0.6), 7)))
 	sfx.play("win_fanfare")
-	var headline: String = ["", "Nice!", "Great!", "Perfect!"][clampi(stars, 0, 3)]
+	var headline: String = ["", Loc.t("praise_nice"), Loc.t("praise_great"), Loc.t("praise_perfect")][clampi(stars, 0, 3)]
 	var board_centre := board.global_position + board.origin + \
 		Vector2(state.width, state.height) * board.cell_size * 0.5 - global_position
 	add_child(Fx.float_text(headline, board_centre, Art.STAR, 92, 60.0, 0.5))
@@ -786,15 +855,17 @@ func _on_reward_burst(from_global: Vector2, amount: int) -> void:
 func _on_ad_finished(granted: bool, from_global: Vector2) -> void:
 	if granted:
 		_on_reward_burst(from_global, GameState.AD_REWARD)
-		hud.flash_message("+%d diamonds!" % GameState.AD_REWARD)
+		hud.flash_message(Loc.t("ad_reward_toast") % GameState.AD_REWARD)
 	else:
-		hud.flash_message("Ad not finished - no diamonds this time")
+		hud.flash_message(Loc.t("ad_failed"))
 
 
 func _on_next() -> void:
 	# A level transition is the natural break Playgama wants interstitials at;
 	# the platform enforces its own minimum gap between them.
 	PlatformSdk.show_interstitial()
+	# The win screen's gem fly-in may not have run if CONTINUE came early.
+	hud.set_diamonds(GameState.diamonds)
 	load_level(level.level_index + 1)
 
 
@@ -826,6 +897,7 @@ func undo() -> void:
 			bv.cell = INVALID
 		_pick_origin = {"slot": e.slot, "cell": e.cell, "tray": e.tray}
 		return_home(bv)
+	_save_run()
 
 
 ## A golden double ring where a hint just dropped its piece.
@@ -881,7 +953,7 @@ func hint() -> void:
 			_drag.cancel()
 			ad_panel.show_panel()
 		else:
-			hud.flash_message("Not enough diamonds for a hint")
+			hud.flash_message(Loc.t("no_diamonds_hint"))
 		return
 	var answer := Solver.new().solve(state, remaining)
 	if answer == null:
@@ -891,7 +963,7 @@ func hint() -> void:
 		# shouldn't vanish along with it.
 		GameState.diamonds += GameState.HINT_COST
 		GameState.save_progress()
-		hud.flash_message("No way home from here - try undoing a move")
+		hud.flash_message(Loc.t("no_way_home"))
 		return
 	sfx.play("hint_use")
 	# For polyomino, find a piece that solver placed
@@ -920,6 +992,7 @@ func hint() -> void:
 					commit_place(pv, origin)
 					_hint_flash(pv)
 					_hints_used += 1
+					_save_run()
 					return
 			# Also try matching by key if id mismatch due to duplicate
 			for v in _in_tray:
@@ -933,6 +1006,7 @@ func hint() -> void:
 					commit_place(pv2, origin)
 					_hint_flash(pv2)
 					_hints_used += 1
+					_save_run()
 					return
 	else:
 		# Single-cell hint

@@ -50,22 +50,12 @@ func _start_job() -> void:
 	_frames = 0
 
 
-## Keeps only the logo: hides the top bar and every row under the logo
-## (PLAY, level label, LEVELS) so the cover carries no tappable-looking UI.
+## Keeps only the painted art: hides the "Ui" layer (top bar, PLAY, PHOTOS) so
+## the cover carries no tappable-looking UI.
 func _strip_ui(menu: MainMenuScreen) -> void:
-	var col := menu.play_button.get_parent()
-	var after_logo := false
-	for c in col.get_children():
-		if after_logo:
-			(c as CanvasItem).visible = false
-		elif c is Control and c.custom_minimum_size == Vector2(640, 380):
-			after_logo = true
-	for c in menu.get_children():
-		if c is HBoxContainer:
-			c.visible = false
-	# The column centres its children, so dropping the rows below re-centres
-	# the logo; nudge the container back up to undo the top-bar offset.
-	(col.get_parent() as Control).offset_top = 0
+	var ui := menu.get_node_or_null("Ui")
+	if ui != null:
+		(ui as CanvasItem).visible = false
 
 
 func _process(delta: float) -> bool:

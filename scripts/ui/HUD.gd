@@ -100,10 +100,18 @@ func _build_row1(parent: Control) -> void:
 	title_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row1.add_child(title_box)
 
+	# "LEVEL N" sits in a white pill with thin grey text, like the reference's
+	# turn counter.
+	var title_pill := PanelContainer.new()
+	title_pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	title_pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	title_pill.add_theme_stylebox_override("panel", _white_pill(34.0, 22, 2, 4))
+	title_box.add_child(title_pill)
 	_title = Label.new()
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	Art.style_label(_title, 46)
-	title_box.add_child(_title)
+	Art.style_label(_title, 34, Art.HUD_TEXT, Art.TEXT_OUTLINE, 0)
+	_title.add_theme_font_override("font", Art.thin_font())
+	title_pill.add_child(_title)
 
 	_tier_pill = PanelContainer.new()
 	_tier_pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -120,11 +128,11 @@ func _build_row1(parent: Control) -> void:
 	bar.mouse_filter = Control.MOUSE_FILTER_PASS
 	row1.add_child(bar)
 
-	var back := Art.icon_button("back", Color.TRANSPARENT, 64.0)
+	var back := Art.icon_button("back", Art.HUD_BROWN, 64.0, Color.TRANSPARENT, true)
 	_wire(back, func(): menu_pressed.emit())
 	bar.add_child(back)
 
-	var help := Art.icon_button("help", Color.TRANSPARENT, 64.0)
+	var help := Art.icon_button("help", Art.HUD_BROWN, 64.0, Color.TRANSPARENT, true)
 	_wire(help, func(): help_pressed.emit())
 	bar.add_child(help)
 
@@ -133,7 +141,7 @@ func _build_row1(parent: Control) -> void:
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(spacer)
 
-	_diamond_chip = Art.build_diamond_chip()
+	_diamond_chip = Art.build_diamond_chip(true)
 	_diamond_chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	bar.add_child(_diamond_chip)
 
@@ -145,7 +153,7 @@ func _build_row2(parent: Control) -> void:
 	row2.mouse_filter = Control.MOUSE_FILTER_PASS
 	parent.add_child(row2)
 
-	var undo := Art.icon_button("undo", Art.ACCENT_BLUE, 64.0)
+	var undo := Art.icon_button("undo", Art.HUD_BROWN, 64.0, Color.TRANSPARENT, true)
 	_wire(undo, func(): undo_pressed.emit())
 	row2.add_child(undo)
 
@@ -160,10 +168,11 @@ func _build_row2(parent: Control) -> void:
 	_progress_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_progress_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	Art.style_label(_progress_label, 20, Art.WHITE, Art.TEXT_OUTLINE, 6)
+	Art.style_label(_progress_label, 22, Art.HUD_TEXT, Art.TEXT_OUTLINE, 0)
+	_progress_label.add_theme_font_override("font", Art.thin_font())
 	_progress.add_child(_progress_label)
 
-	_hint_button = Art.icon_button("hint", Art.ACCENT_GOLD, 64.0)
+	_hint_button = Art.icon_button("search", Art.HUD_BROWN, 64.0, Color.TRANSPARENT, true)
 	_wire(_hint_button, func(): hint_pressed.emit())
 	# Cost badge: a little gem + number pinned to the button's corner. When the
 	# player can't afford a hint it turns green and reads "AD" instead, so the
@@ -176,10 +185,10 @@ func _build_row2(parent: Control) -> void:
 	badge.draw.connect(func():
 		var f := badge.get_theme_default_font()
 		if GameState.diamonds < GameState.HINT_COST and PlatformSdk.is_rewarded_available():
-			badge.draw_style_box(Art.box(Art.ACCENT_PRIMARY, 13.0, 2.0, Art.TEXT_OUTLINE), Rect2(Vector2.ZERO, badge.size))
+			badge.draw_style_box(Art.box(Art.ACCENT_PRIMARY, 13.0, 2.0, Color.WHITE), Rect2(Vector2.ZERO, badge.size))
 			badge.draw_string(f, Vector2(0, 20), "AD", HORIZONTAL_ALIGNMENT_CENTER, badge.size.x, 17, Art.WHITE)
 			return
-		badge.draw_style_box(Art.box(Art.ACCENT_PINK, 13.0, 2.0, Art.TEXT_OUTLINE), Rect2(Vector2.ZERO, badge.size))
+		badge.draw_style_box(Art.box(Art.ACCENT_PINK, 13.0, 2.0, Color.WHITE), Rect2(Vector2.ZERO, badge.size))
 		Art.draw_gem(badge, Vector2(11, 13), 6.5)
 		badge.draw_string(f, Vector2(19, 20), str(GameState.HINT_COST), HORIZONTAL_ALIGNMENT_LEFT, -1, 17, Art.WHITE))
 	_hint_button.add_child(badge)
@@ -195,6 +204,19 @@ func _set_tier_color(c: Color) -> void:
 	sb.content_margin_top = 1
 	sb.content_margin_bottom = 3
 	_tier_pill.add_theme_stylebox_override("panel", sb)
+
+
+## White rounded pill with a faint warm shadow -- the cream theme's chip surface.
+func _white_pill(radius: float, h: float, v_top: float, v_bottom: float) -> StyleBoxFlat:
+	var sb := Art.box(Art.WHITE, radius)
+	sb.shadow_color = Color(0.45, 0.33, 0.25, 0.14)
+	sb.shadow_size = 6
+	sb.shadow_offset = Vector2(0, 3)
+	sb.content_margin_left = h
+	sb.content_margin_right = h
+	sb.content_margin_top = v_top
+	sb.content_margin_bottom = v_bottom
+	return sb
 
 
 func _wire(b: Button, on_press: Callable) -> void:
@@ -238,9 +260,9 @@ func setup(sfx: Sfx) -> void:
 	_sfx = sfx
 
 
-func set_level(index: int, tier_name: String) -> void:
-	_title.text = "LEVEL %d" % (index + 1)
-	_sub.text = tier_name.to_upper()
+func set_level(index: int, _tier_name := "") -> void:
+	_title.text = Loc.t("level_caps") % (index + 1)
+	_sub.text = Loc.tier_name(LevelGenerator.tier_for_level(index)).to_upper()
 	_set_tier_color(Art.tier_color(LevelGenerator.tier_for_level(index)))
 	_total = 0
 	_progress_value = 0.0
@@ -284,7 +306,7 @@ func set_remaining(n: int) -> void:
 	var placed := _total - n
 	var target := 0.0 if _total <= 0 else float(placed) / float(_total)
 	if n == 0:
-		_progress_label.text = "ALL SETTLED!"
+		_progress_label.text = Loc.t("all_settled")
 	else:
 		_progress_label.text = "%d / %d" % [placed, _total]
 	if _progress_tween != null and _progress_tween.is_valid():
@@ -303,20 +325,18 @@ func set_remaining(n: int) -> void:
 func _draw_progress() -> void:
 	var r := Rect2(Vector2.ZERO, _progress.size)
 	var rad := r.size.y * 0.5
-	# Trough: dark glass with a lighter rim.
-	_progress.draw_style_box(Art.box(Color(0.1, 0.05, 0.32, 0.38), rad, 3.0, Color(1, 1, 1, 0.28)), r)
+	# Trough: a white pill with a faint warm shadow.
+	var trough := Art.box(Art.WHITE, rad)
+	trough.shadow_color = Color(0.45, 0.33, 0.25, 0.12)
+	trough.shadow_size = 5
+	trough.shadow_offset = Vector2(0, 3)
+	_progress.draw_style_box(trough, r)
 	if _progress_value <= 0.001:
 		return
 	var inner := r.grow(-5.0)
 	var w := maxf(inner.size.y, inner.size.x * clampf(_progress_value, 0.0, 1.0))
 	var fill := Rect2(inner.position, Vector2(w, inner.size.y))
-	var g := Art.OK_TINT
-	_progress.draw_style_box(Art.box(g.darkened(0.2), inner.size.y * 0.5), fill)
-	var top := Rect2(fill.position, Vector2(fill.size.x, fill.size.y - 4.0))
-	_progress.draw_style_box(Art.box(g, inner.size.y * 0.5), top)
-	if fill.size.x > 24.0:
-		var gl := Rect2(fill.position + Vector2(10, 4), Vector2(fill.size.x - 20, 5))
-		_progress.draw_style_box(Art.box(Color(1, 1, 1, 0.45), 2.5), gl)
+	_progress.draw_style_box(Art.box(Palette.fill(Palette.Hue.GREEN), inner.size.y * 0.5), fill)
 
 
 func flash_message(msg: String, hold := 1.6) -> void:

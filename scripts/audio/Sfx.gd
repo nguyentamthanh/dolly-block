@@ -128,6 +128,16 @@ static func _synth(name: String) -> AudioStreamWAV:
 				[Vector2(0, 0), Vector2(0.1, 0.4), Vector2(1, 0)]))
 		"whoosh":
 			return _wav(_noise(0.3, [Vector2(0, 0), Vector2(0.45, 0.55), Vector2(1, 0)]))
+		"focus":
+			# The camera's autofocus beep.
+			return _wav(_tone(1900.0, 0.05, "sine", [Vector2(0, 0), Vector2(0.1, 0.7), Vector2(1, 0)]))
+		"shutter":
+			# Two mechanical clicks: the blades closing, then opening.
+			var c1 := _mix(_noise(0.03, [Vector2(0, 1.0), Vector2(1, 0)]),
+				_tone(170.0, 0.03, "square", [Vector2(0, 0.7), Vector2(1, 0)]))
+			var c2 := _mix(_noise(0.025, [Vector2(0, 0.7), Vector2(1, 0)]),
+				_tone(230.0, 0.025, "square", [Vector2(0, 0.5), Vector2(1, 0)]))
+			return _wav(_concat([c1, _silence(0.07), c2]))
 		"star_slam":
 			var thump := _sweep(220.0, 70.0, 0.14, "sine", [Vector2(0, 1.0), Vector2(1, 0)])
 			var ding := _tone(1319.0, 0.18, "sine", [Vector2(0, 0), Vector2(0.04, 0.6), Vector2(1, 0)])

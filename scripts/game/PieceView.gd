@@ -173,11 +173,8 @@ func feed_drag_motion(dx: float) -> void:
 func _draw() -> void:
 	if data == null:
 		return
-	var on_board := slot == Slot.BOARD and not _dragging
-	# Lifted-piece shadow: dropped well below the piece while it is carried.
-	if _dragging:
-		Art.draw_drop_shadow(self, Vector2.ZERO, cell_size, data.local_cells(),
-			Color(0.05, 0.02, 0.2, 0.28), cell_size * 0.3)
+	# Flat style: no shadow under the piece, even while it is carried (the
+	# scale-up in set_dragging is the "lifted" cue).
 	# Jelly breathing, anchored at the bottom centre. Visual-only transform,
 	# and ONLY for pieces waiting in the tray: on the board every edge must sit
 	# exactly on the grid, or neighbouring outlines drift apart.
@@ -190,8 +187,7 @@ func _draw() -> void:
 	var pulse := 0.55 + 0.45 * sin(_time * 7.0) if _unhappy else 1.0
 	Art.draw_polyomino(self, Vector2.ZERO, cell_size, data.local_cells(),
 		data.color, data.local_eye(), int(data.mood), data.target_color,
-		_unhappy, 1.0, _compute_board_neighbors(), _blink, _celebrating, pulse,
-		not on_board and not _dragging)
+		_unhappy, 1.0, _compute_board_neighbors(), _blink, _celebrating, pulse)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 

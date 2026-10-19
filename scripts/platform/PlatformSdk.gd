@@ -96,6 +96,9 @@ func _ready() -> void:
 	_bridge.platform.pause_state_changed.connect(_on_pause_state_changed)
 	_bridge.advertisement.interstitial_state_changed.connect(_on_interstitial_state_changed)
 	_bridge.advertisement.rewarded_state_changed.connect(_on_rewarded_state_changed)
+	# Bridge falls back to the browser language when the platform has none.
+	Loc.platform_lang = str(_bridge.platform.language)
+	Loc.refresh()
 	_platform_muted = not bool(_bridge.platform.is_audio_enabled)
 	_apply_audio_and_pause()
 	_bridge.storage.get(STORAGE_KEY, _on_progress_fetched)

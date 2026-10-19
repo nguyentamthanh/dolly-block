@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-build",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:\\Users\\thanh\\AppData\\Local\\Temp\\claude\\C--Working-dolly-block\\4076b761-8496-479c-9bd4-e4f0a58404a4\\scratchpad\\serve_web.js", "C:\\Working\\dolly-block\\build\\web", "8060"],
+      "port": 8060
+    }
+  ]
+}

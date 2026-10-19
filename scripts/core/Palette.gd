@@ -3,37 +3,36 @@ extends RefCounted
 
 ## Color vocabulary matching the live Dolly Blocks palette.
 ##
-## Hyper-casual pass: pushed to ~0.55-0.70 saturation / ~0.85-0.95 value
-## ("candy-glossy") while keeping each hue's angle roughly fixed, so the game
-## still reads as itself, just punchier. SHADE is each FILL darkened ~20% for
-## the piece "chin" shading band -- kept as literal hex (matching this file's
-## existing convention) since a GDScript const array can't call .darkened() at
-## parse time.
+## Soft pastel pass (flat pieces on a cream backdrop). SHADE is each FILL
+## darkened ~15%, kept as literal hex since a GDScript const array can't call
+## .darkened() at parse time.
 
 enum Hue { PINK, CORAL, ORANGE, YELLOW, GREEN, TEAL, BLUE, PURPLE, MINT = GREEN }
 
 const COUNT := 8
 
+## Soft pastel set for the cream gameplay look. PINK / CORAL / ORANGE stay far
+## enough apart in hue to tell apart in a thought-bubble heart.
 const FILL := [
-	Color("#ff8a80"), # PINK
-	Color("#ff5252"), # CORAL
-	Color("#ff9d42"), # ORANGE
-	Color("#ffd93b"), # YELLOW
-	Color("#5be089"), # GREEN
-	Color("#26c6b0"), # TEAL
-	Color("#4fa8ff"), # BLUE
-	Color("#b388ff"), # PURPLE
+	Color("#f4a8bd"), # PINK
+	Color("#ff8f80"), # CORAL
+	Color("#ffb07c"), # ORANGE
+	Color("#ffcb78"), # YELLOW
+	Color("#b0d4a8"), # GREEN
+	Color("#7fabae"), # TEAL
+	Color("#94b8e3"), # BLUE
+	Color("#a2a8d8"), # PURPLE
 ]
 
 const SHADE := [
-	Color("#d96b62"),
-	Color("#d93f3f"),
-	Color("#d97f34"),
-	Color("#d9ae2f"),
-	Color("#48b06c"),
-	Color("#1c9a8c"),
-	Color("#3f86cc"),
-	Color("#8f6fcc"),
+	Color("#d98aa0"),
+	Color("#d9705f"),
+	Color("#d98f5c"),
+	Color("#d9ab55"),
+	Color("#8fb887"),
+	Color("#628f92"),
+	Color("#7499c4"),
+	Color("#8389ba"),
 ]
 
 const NAMES := ["Pink", "Coral", "Orange", "Yellow", "Green", "Teal", "Blue", "Purple"]

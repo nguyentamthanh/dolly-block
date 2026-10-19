@@ -48,11 +48,11 @@ func _ready() -> void:
 	center.add_child(_card)
 
 	var title := Label.new()
-	title.text = "OUT OF DIAMONDS"
+	title.text = Loc.t("ad_title")
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.position = Vector2(20, 34)
 	title.size = Vector2(CARD_SIZE.x - 40, 60)
-	Art.style_label(title, 38, Art.ACCENT_PINK)
+	Art.style_label(title, Art.fit_font_size(title, title.text, title.size.x - 10.0, 0.0, 38, 22), Art.ACCENT_PINK)
 	_card.add_child(title)
 
 	var gem := Control.new()
@@ -63,20 +63,25 @@ func _ready() -> void:
 	_card.add_child(gem)
 
 	var body := Label.new()
-	body.text = "Watch a short ad to get\n+%d diamonds" % GameState.AD_REWARD
+	body.text = Loc.t("ad_body") % GameState.AD_REWARD
 	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	body.position = Vector2(20, 206)
 	body.size = Vector2(CARD_SIZE.x - 40, 70)
-	body.add_theme_font_size_override("font_size", 26)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.add_theme_font_size_override("font_size",
+		Art.fit_font_size(body, body.text, body.size.x, body.size.y, 26, 16, true))
 	body.add_theme_color_override("font_color", Art.INK_SOFT)
 	_card.add_child(body)
 
 	_watch = Button.new()
-	_watch.text = "WATCH AD"
+	_watch.text = Loc.t("watch_ad")
 	_watch.focus_mode = Control.FOCUS_NONE
 	_watch.position = Vector2(CARD_SIZE.x * 0.5 - 160, 292)
 	_watch.size = Vector2(320, 96)
-	_watch.add_theme_font_size_override("font_size", 36)
+	# The play triangle takes the left ~70px of the button.
+	_watch.add_theme_font_size_override("font_size",
+		Art.fit_font_size(_watch, _watch.text, _watch.size.x - 100.0, 0.0, 36, 20))
+	_watch.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	Art.style_button(_watch, Art.ACCENT_PRIMARY)
 	# A play triangle on the left marks it as a video before it is tapped.
 	_watch.draw.connect(func():

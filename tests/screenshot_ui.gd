@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Captures one PNG per UI screen (menu, level-select, game) so the redesign
+## Captures one PNG per UI screen (timeline, game) so the redesign
 ## can be inspected without booting the game in the editor.
 ## Usage:
 ##   godot --script res://tests/screenshot_ui.gd -- <out_prefix>
@@ -10,9 +10,8 @@ extends SceneTree
 ## can poke GameState per scene (e.g. unlock a few levels for level-select)
 ## without leaking state between captures.
 var _jobs := [
-	{"label": "menu", "path": "res://scenes/MainMenu.tscn"},
-	{"label": "levelselect", "path": "res://scenes/LevelSelect.tscn",
-		"setup": "_setup_levelselect"},
+	{"label": "timeline", "path": "res://scenes/Timeline.tscn",
+		"setup": "_setup_timeline"},
 	{"label": "game", "path": "res://scenes/Main.tscn",
 		"setup": "_setup_game"},
 ]
@@ -58,9 +57,8 @@ func _load_next_job() -> void:
 	root.add_child(node)
 
 
-func _setup_levelselect() -> void:
-	# Unlock the first 7 levels with mixed stars so the screenshot shows
-	# locked/unlocked/cleared states -- the full visual taxonomy.
+func _setup_timeline() -> void:
+	# A few cleared levels with mixed stars, so the rope has photos on it.
 	GameState.highest_unlocked = 6
 	GameState.stars_at = {"0": 3, "1": 3, "2": 3, "3": 2, "4": 2, "5": 1}
 	GameState.diamonds = 47

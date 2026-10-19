@@ -413,6 +413,33 @@ func violated_cells() -> Array[Vector2i]:
 	return out
 
 
+## Solver-speed variant of would_violate(piece, origin): only the new piece and
+## the pieces touching it can change mood state, so only those are checked
+## instead of every piece on the board. Pre-existing conflicts elsewhere are
+## not reported here (the solver's leaf check, is_solved(), still catches them).
+func placement_violates(piece: PieceData, origin: Vector2i) -> bool:
+	var cells := piece.world_cells(origin)
+	if not can_place_cells(cells):
+		return true
+	place_piece(piece, origin)
+	var bad := piece_violated(piece.id)
+	if not bad:
+		var seen := {}
+		for c in cells:
+			for off in NEIGHBOUR_OFFSETS:
+				var nid := piece_id_at(c + off)
+				if nid == piece.id or seen.has(nid):
+					continue
+				seen[nid] = true
+				if _placed.has(nid) and piece_violated(nid):
+					bad = true
+					break
+			if bad:
+				break
+	remove_piece(piece.id)
+	return bad
+
+
 func would_violate(a, b) -> bool:
 	# Support both (piece, origin) and (Vector2i, BlockData)
 	if a is PieceData and b is Vector2i:

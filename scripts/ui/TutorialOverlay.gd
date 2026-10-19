@@ -11,18 +11,13 @@ signal finished
 const CARD_SIZE := Vector2(580, 790)
 const STAGE_RECT := Rect2(30, 108, 520, 300)
 
-var _steps := [
-	{"title": "FILL THE BOARD", "color": Art.ACCENT_BLUE,
-		"body": "Drag pieces from the tray onto the board.\nFill every empty cell!"},
-	{"title": "TAP TO ROTATE", "color": Art.ACCENT_GOLD,
-		"body": "Tap a piece to turn it,\nthen drag it into place."},
-	{"title": "HEARTS = LOVE", "color": Art.ACCENT_PINK,
-		"body": "A heart means the block LOVES that color.\nPut it next to a block of that color."},
-	{"title": "BOLTS = DISLIKE", "color": Art.BAD_TINT,
-		"body": "A bolt means the block HATES that color.\nKeep them apart, or it gets upset\n(red ring)."},
-	{"title": "MAKE THEM HAPPY", "color": Art.ACCENT_PRIMARY,
-		"body": "Fill the board with every block happy to win!\nStuck? Undo a move, or use a Hint\nfor %d diamonds." % GameState.HINT_COST},
-]
+## Text comes from Loc (keys "t<N>_title" / "t<N>_body"); the last body takes
+## the hint price.
+const _STEP_COLORS := [Art.ACCENT_BLUE, Art.ACCENT_GOLD, Art.ACCENT_PINK, Art.BAD_TINT, Art.ACCENT_PRIMARY]
+const TITLE_SIZE := 42
+const BODY_SIZE := 26
+
+var _steps := _STEP_COLORS
 
 var _card: Panel
 var _stage: Control
@@ -65,7 +60,7 @@ func _ready() -> void:
 	center.add_child(_card)
 
 	var how := Label.new()
-	how.text = "HOW TO PLAY"
+	how.text = Loc.t("how_to_play")
 	how.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	how.position = Vector2(0, 18)
 	how.size = Vector2(CARD_SIZE.x, 30)
@@ -137,11 +132,18 @@ func show_tutorial() -> void:
 func _show_step(i: int) -> void:
 	_step = i
 	_t = 0.0
-	var s: Dictionary = _steps[i]
-	_title.text = s.title
-	Art.style_label(_title, 42, s.color)
-	_body.text = s.body
-	_next.text = "LET'S PLAY!" if i == _steps.size() - 1 else "NEXT"
+	var title := Loc.t("t%d_title" % (i + 1))
+	var body := Loc.t("t%d_body" % (i + 1))
+	if i == _steps.size() - 1:
+		body = body % GameState.HINT_COST
+	_title.text = title
+	Art.style_label(_title, Art.fit_font_size(_title, title, _title.size.x, 0.0, TITLE_SIZE, 22), _steps[i])
+	_body.text = body
+	_body.add_theme_font_size_override("font_size",
+		Art.fit_font_size(_body, body, _body.size.x, _body.size.y, BODY_SIZE, 16, true))
+	_next.text = Loc.t("lets_play") if i == _steps.size() - 1 else Loc.t("next")
+	_next.add_theme_font_size_override("font_size",
+		Art.fit_font_size(_next, _next.text, _next.size.x - 44.0, 0.0, 40, 22))
 	_dots.queue_redraw()
 	_stage.queue_redraw()
 	_stage.position = STAGE_RECT.position  # slide_in reads it as the target
@@ -334,8 +336,8 @@ func _draw_win() -> void:
 		Art.draw_star_fancy(_stage, c, r, appear >= 1.0)
 	var f := _stage.get_theme_default_font()
 	var specs := [
-		{"kind": "undo", "col": Art.ACCENT_BLUE, "label": "Undo", "x": cx - 90.0},
-		{"kind": "hint", "col": Art.ACCENT_GOLD, "label": "Hint", "x": cx + 90.0},
+		{"kind": "undo", "col": Art.ACCENT_BLUE, "label": Loc.t("undo"), "x": cx - 90.0},
+		{"kind": "hint", "col": Art.ACCENT_GOLD, "label": Loc.t("hint"), "x": cx + 90.0},
 	]
 	for s in specs:
 		var c2 := Vector2(s.x, 200)

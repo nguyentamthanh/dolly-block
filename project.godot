@@ -5,9 +5,12 @@ config_version=5
 config/name="Cozy Blocks"
 config/description="A grid puzzle where every block has feelings about colors."
 run/main_scene="res://scenes/MainMenu.tscn"
-; Rendered by tools/make_icon.gd from the game's own art code.
-config/icon="res://assets/icon/icon.png"
+; Generated art (assets/icon/icon_full.png), rounded to icon.png / icon_512.png.
+config/icon="res://assets/icon/icon_256.png"
 config/features=PackedStringArray("4.4", "GL Compatibility")
+boot_splash/bg_color=Color(0.98, 0.84, 0.95, 1)
+boot_splash/image="res://assets/splash/splash.png"
+boot_splash/fullsize=true
 
 
 [autoload]

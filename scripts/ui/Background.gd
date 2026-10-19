@@ -15,8 +15,24 @@ var _rect: ColorRect
 var _mat: ShaderMaterial
 
 
+## When set (alpha > 0), the backdrop is this one flat colour instead of the
+## animated sky -- the gameplay screen uses the soft cream.
+@export var flat_color := Color.TRANSPARENT
+
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if flat_color.a > 0.0:
+		_rect = ColorRect.new()
+		_rect.color = flat_color
+		_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_rect.offset_left = -BLEED
+		_rect.offset_top = -BLEED
+		_rect.offset_right = BLEED
+		_rect.offset_bottom = BLEED
+		add_child(_rect)
+		return
 	_mat = ShaderMaterial.new()
 	_mat.shader = SHADER
 	_mat.set_shader_parameter("top_color", Art.SKY_TOP)

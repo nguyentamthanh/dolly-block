@@ -1,9 +1,11 @@
-[gd_resource type="FontVariation" load_steps=2 format=3]
+[gd_resource type="FontVariation" load_steps=3 format=3]
 
 [ext_resource type="FontFile" path="res://assets/fonts/Fredoka.ttf" id="1_fredoka"]
+[ext_resource type="FontFile" path="res://assets/fonts/NotoSans-Bold.ttf" id="2_noto"]
 
 [resource]
 base_font = ExtResource("1_fredoka")
+fallbacks = [ExtResource("2_noto")]
 variation_opentype = {
 2003265652: 600
 }

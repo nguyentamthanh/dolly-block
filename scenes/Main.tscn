@@ -25,6 +25,7 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("2_bg")
+flat_color = Color(0.976, 0.937, 0.902, 1)
 
 [node name="Layout" type="VBoxContainer" parent="."]
 layout_mode = 1

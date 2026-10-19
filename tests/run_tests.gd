@@ -16,6 +16,7 @@ const M := BlockData.Mood
 func _initialize() -> void:
 	print("\n=== Cozy Blocks logic tests ===\n")
 
+	_test_translations()
 	_test_board_basics()
 	_test_hostile_violation()
 	_test_affectionate_hope_and_despair()
@@ -23,6 +24,7 @@ func _initialize() -> void:
 	_test_solver_known_boards()
 	_test_solver_matches_brute_force()
 	_test_generator_always_solvable()
+	_test_difficulty_ramp()
 	_test_generator_is_deterministic()
 
 	print("\n=== %d passed, %d failed ===\n" % [_passed, _failed])
@@ -259,20 +261,60 @@ func _signature(st: BoardState, cells: Array) -> String:
 
 ## The regression net that matters most: a level that ships unsolvable is the
 ## worst bug this game can have.
+func _test_translations() -> void:
+	print("Loc: every key is translated into every language")
+	var complete := true
+	var placeholders_match := true
+	for key in Loc.TEXTS:
+		var row: Array = Loc.TEXTS[key]
+		if row.size() != Loc.CODES.size():
+			complete = false
+			print("    bad column count: %s" % key)
+			continue
+		for i in row.size():
+			if (row[i] as String).strip_edges().is_empty():
+				complete = false
+				print("    empty: %s [%s]" % [key, Loc.CODES[i]])
+			if (row[i] as String).count("%d") != (row[0] as String).count("%d"):
+				placeholders_match = false
+				print("    placeholder mismatch: %s [%s]" % [key, Loc.CODES[i]])
+	_ok(complete, "no missing or empty translations")
+	_ok(placeholders_match, "%d placeholders match English")
+	_ok(Loc.NAMES.size() == Loc.CODES.size(), "every language has a native name")
+	_ok(Loc.normalize("pt-BR") == "pt" and Loc.normalize("RU") == "ru", "region/case codes normalize")
+	_ok(Loc.normalize("zh").is_empty() and Loc.normalize("").is_empty(), "unsupported codes fall back")
+	Loc.platform_lang = "ru"
+	GameState.language = ""
+	Loc.refresh()
+	_ok(Loc.current() == "ru" and Loc.t("play") == "ИГРАТЬ", "platform language is used")
+	Loc.platform_lang = "vi"
+	Loc.refresh()
+	_ok(Loc.current() == "en", "unsupported platform language falls back to English")
+	GameState.language = "de"
+	Loc.refresh()
+	_ok(Loc.current() == "de", "saved choice wins over the platform")
+	Loc.platform_lang = ""
+	GameState.language = ""
+	Loc.refresh()
+	_ok(Loc.current() == "en" and Loc.t("play") == "PLAY", "English is the default")
+
+
 func _test_generator_always_solvable() -> void:
 	print("Generator: every emitted level is solvable")
 	var gen := LevelGenerator.new()
 	var s := Solver.new()
 
-	var per_tier := 50
 	var total := 0
+	var counted := 0
 	var bad_null := 0
 	var bad_unsolvable := 0
 	var bad_tier := 0
 	var loose := 0
 	var trivial := 0
 
-	for tier in 4:
+	for tier in LevelGenerator.TIERS.size():
+		# The big tiers cost a second or so per level, so sample fewer of them.
+		var per_tier := 40 if tier <= 1 else 5
 		for i in per_tier:
 			var level_index := tier * 1000 + i
 			var lv := gen.generate(level_index, tier)
@@ -280,14 +322,25 @@ func _test_generator_always_solvable() -> void:
 			if lv == null:
 				bad_null += 1
 				continue
-			if not s.has_solution(lv.build_state(), lv.tray_copy()):
+			# Solvable by construction: the tray pieces back in the tiling they
+			# were lifted from must fill the board and keep everyone happy.
+			var st := lv.build_state()
+			for p in lv.tray_copy():
+				var piece: PieceData = p
+				st.place_piece(piece, piece.orient_to_solution())
+			if not st.is_solved():
 				bad_unsolvable += 1
 				print("      UNSOLVABLE level_index=%d tier=%d" % [level_index, tier])
+			if tier <= 1 and not s.has_solution(lv.build_state(), lv.tray_copy()):
+				bad_unsolvable += 1
+				print("      SOLVER FINDS NO SOLUTION level_index=%d tier=%d" % [level_index, tier])
 			var cfg: Dictionary = LevelGenerator.TIERS[tier]
 			if lv.width != int(cfg.w) or lv.height != int(cfg.h):
 				bad_tier += 1
-			if cfg.has("max_solutions") and lv.solution_count > int(cfg.max_solutions):
-				loose += 1
+			if tier <= 1:
+				counted += 1
+				if lv.solution_count > int(cfg.max_solutions):
+					loose += 1
 			# search_cost == number of nodes expanded; one node per free cell
 			# means the answer fell out with zero backtracking.
 			var tray_sz2: int = 0
@@ -301,12 +354,46 @@ func _test_generator_always_solvable() -> void:
 	_eq(bad_null, 0, "no generation failures across %d levels" % total)
 	_eq(bad_unsolvable, 0, "every generated level has a solution")
 	_eq(bad_tier, 0, "every level matches its tier dimensions")
-	print("      (%d/%d levels ended over the outlier ceiling)" % [loose, total])
-	_ok(loose <= total / 10, "at least 90%% of levels stay under the outlier ceiling")
+	print("      (%d/%d small-tier levels ended over the solution ceiling)" % [loose, counted])
+	_ok(loose <= counted / 10, "at least 90%% of small-tier levels meet their solution ceiling")
 	# Difficulty is not asserted on solution count -- see the note in
 	# LevelGenerator.TIERS. What is asserted is that levels are not degenerate:
 	# a puzzle the solver finishes without ever backtracking needed no thought.
 	_ok(trivial <= total / 4, "at most 25%% of levels are solvable with no search")
+
+
+func _test_difficulty_ramp() -> void:
+	print("Generator: difficulty eases up level by level")
+	var gen := LevelGenerator.new()
+	var s := Solver.new()
+	var bad := 0
+	var prev_tray := 0
+	var drops := 0
+	# Past the intro, tray size may dip only when a new stage resets the board.
+	for i in 90:
+		var lv := gen.generate(i)
+		if lv == null:
+			bad += 1
+			continue
+		var st := lv.build_state()
+		for p in lv.tray_copy():
+			var piece: PieceData = p
+			st.place_piece(piece, piece.orient_to_solution())
+		if not st.is_solved():
+			bad += 1
+		if i < 3:
+			_ok(lv.tray_pieces.size() <= 3, "level %d (intro) has at most 3 pieces to place" % i)
+			_eq(lv.width, 5, "level %d (intro) is on the small board" % i)
+		if i < 8 and not s.has_solution(lv.build_state(), lv.tray_copy()):
+			bad += 1
+		if lv.tray_pieces.size() < prev_tray:
+			drops += 1
+		prev_tray = lv.tray_pieces.size()
+	_eq(bad, 0, "levels 0-89 all generate and are solvable")
+	# One dip per stage boundary at most (7 stages -> 6 boundaries).
+	_ok(drops <= LevelGenerator.STAGES.size() - 1, "tray size only dips at stage boundaries (%d dips)" % drops)
+	_ok(LevelGenerator.tier_for_level(0) == 0 and LevelGenerator.tier_for_level(200) == 4,
+		"tiers run from Warm-up to Nightmare")
 
 
 func _test_generator_is_deterministic() -> void:
