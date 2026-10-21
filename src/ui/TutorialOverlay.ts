@@ -24,6 +24,8 @@ const CARD_W = 580;
 const CARD_H = 790;
 const STAGE = { x: 30, y: 108, w: 520, h: 300 };
 const STEP_COLORS = [Art.ACCENT_BLUE, Art.ACCENT_GOLD, Art.ACCENT_PINK, Art.BAD_TINT, Art.ACCENT_PRIMARY];
+/** The rotate card's index in STEP_COLORS; it is left out while the level can't turn pieces yet. */
+const ROTATE_STEP = 1;
 const TITLE_SIZE = 42;
 const BODY_SIZE = 26;
 
@@ -39,7 +41,10 @@ export class TutorialOverlay extends Overlay {
   private stage: CanvasView;
   private stageHolder: Phaser.GameObjects.Container;
   private next: UiButton | null = null;
+  /** Position in `steps`. */
   private step = 0;
+  /** Indices into STEP_COLORS of the cards being shown. */
+  private steps: number[] = STEP_COLORS.map((_, i) => i);
   private t = 0;
   private active = false;
 
@@ -76,7 +81,9 @@ export class TutorialOverlay extends Overlay {
     this.stage.invalidate();
   }
 
-  showTutorial(): void {
+  /** `withRotate` false drops the rotate card (before the level where turning pieces unlocks). */
+  showTutorial(withRotate = true): void {
+    this.steps = STEP_COLORS.map((_, i) => i).filter((i) => withRotate || i !== ROTATE_STEP);
     this.layout();
     this.active = true;
     this.setVisible(true);
@@ -113,7 +120,7 @@ export class TutorialOverlay extends Overlay {
     }
     // The NEXT button's text changes per step: rebuild it.
     this.next?.destroy();
-    const last = i === STEP_COLORS.length - 1;
+    const last = i === this.steps.length - 1;
     const text = last ? Loc.t('lets_play') : Loc.t('next');
     this.next = textButton(this.scene, { text, w: 340, h: 100, accent: Art.ACCENT_PRIMARY, fontSize: fitFontSize(text, 340 - 44, 0, 40, 22) });
     this.next.sfx = false;
@@ -124,7 +131,7 @@ export class TutorialOverlay extends Overlay {
 
   private onNext(): void {
     Sfx.play('button_tap');
-    if (this.step < STEP_COLORS.length - 1) this.showStep(this.step + 1);
+    if (this.step < this.steps.length - 1) this.showStep(this.step + 1);
     else this.close();
   }
 
@@ -144,7 +151,7 @@ export class TutorialOverlay extends Overlay {
     });
     drawLabel(ci, Loc.t('how_to_play'), 0, 18, CARD_W, 'center', plain(20, Art.INK_SOFT));
 
-    const i = this.step;
+    const i = this.steps[this.step];
     const title = Loc.t(`t${i + 1}_title`);
     let body = Loc.t(`t${i + 1}_body`);
     if (i === STEP_COLORS.length - 1) body = body.replace('%d', String(GameState.HINT_COST));
@@ -163,8 +170,8 @@ export class TutorialOverlay extends Overlay {
 
     // Dots.
     const gap = 30;
-    const x0 = CARD_W * 0.5 - gap * (STEP_COLORS.length - 1) * 0.5;
-    for (let k = 0; k < STEP_COLORS.length; k++) {
+    const x0 = CARD_W * 0.5 - gap * (this.steps.length - 1) * 0.5;
+    for (let k = 0; k < this.steps.length; k++) {
       const cx = x0 + k * gap;
       const cy = 584 + 12;
       if (k === this.step) ci.drawStyleBox(Art.box(Art.ACCENT_PINK, 8), cx - 16, cy - 8, 32, 16);
@@ -200,7 +207,7 @@ export class TutorialOverlay extends Overlay {
   // Each loops on its own period, driven by t (seconds since the step opened).
 
   private paintStage(ci: CanvasItem): void {
-    switch (this.step) {
+    switch (this.steps[this.step]) {
       case 0:
         return this.drawFill(ci);
       case 1:

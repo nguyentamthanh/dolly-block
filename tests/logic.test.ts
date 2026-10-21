@@ -1,11 +1,11 @@
 // Port of tests/run_tests.gd (pure-logic suite). The legacy single-cell BlockData tests use 1-cell
-// PieceData here; the fixture tests (levels.test.ts) pin the generator and solver to Godot's output.
+// PieceData here; levels.test.ts covers the level ramp and the no-rotation levels.
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import { BoardState } from '../src/core/BoardState';
 import { GameState } from '../src/core/GameState';
 import { LevelData } from '../src/core/LevelData';
-import { LevelGenerator, STAGES, TIERS, tierForLevel } from '../src/core/LevelGenerator';
+import { LevelGenerator, ROTATE_FROM_LEVEL, STAGES, TIERS, VERSION, rotationUnlocked, tierForLevel } from '../src/core/LevelGenerator';
 import { CODES, Loc, NAMES, TEXTS } from '../src/core/Loc';
 import { Hue as H } from '../src/core/Palette';
 import { Mood as M, PieceData, v, type MoodValue } from '../src/core/PieceData';
@@ -185,26 +185,42 @@ describe('LevelGenerator', () => {
 
   it('difficulty eases up level by level', () => {
     const gen = new LevelGenerator();
-    const s = new Solver();
     let prevTray = 0;
     let drops = 0;
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 130; i++) {
       const lv = gen.generate(i)!;
       expect(lv, `level ${i}`).not.toBeNull();
-      const st = lv.buildState();
-      for (const p of lv.trayCopy()) st.placePiece(p, p.orientToSolution());
-      expect(st.isSolved(), `level ${i}`).toBe(true);
-      if (i < 3) {
-        expect(lv.trayPieces.length, `level ${i} intro tray`).toBeLessThanOrEqual(3);
-        expect(lv.width).toBe(5);
-      }
-      if (i < 8) expect(s.hasSolution(lv.buildState(), lv.trayCopy()), `level ${i}`).toBe(true);
+      const s = new Solver(rotationUnlocked(i));
+      if (i < 40) expect(s.hasSolution(lv.buildState(), lv.trayCopy()), `level ${i}`).toBe(true);
       if (lv.trayPieces.length < prevTray) drops++;
       prevTray = lv.trayPieces.length;
     }
     expect(drops).toBeLessThanOrEqual(STAGES.length - 1);
     expect(tierForLevel(0)).toBe(0);
-    expect(tierForLevel(200)).toBe(4);
+    expect(tierForLevel(500)).toBe(4);
+  });
+
+  it('opens with small, feeling-free boards and grows from there', () => {
+    const gen = new LevelGenerator();
+    for (let i = 0; i < 3; i++) {
+      const lv = gen.generate(i)!;
+      expect([lv.width, lv.height], `level ${i}`).toEqual([4, 4]);
+      expect(lv.trayPieces.length, `level ${i} tray`).toBeLessThanOrEqual(2);
+      expect(lv.allPieces().every((p) => p.mood === M.NEUTRAL), `level ${i} has no feelings yet`).toBe(true);
+    }
+    for (let i = 0; i < ROTATE_FROM_LEVEL; i++) {
+      const lv = gen.generate(i)!;
+      expect(lv.width * lv.height, `level ${i} cells`).toBeLessThanOrEqual(25);
+      expect(lv.trayPieces.length, `level ${i} tray`).toBeLessThanOrEqual(3);
+    }
+    // The old first level (5x5, tray 2-3, feelings everywhere) now comes after the warm-up levels.
+    expect(gen.generate(ROTATE_FROM_LEVEL + 1)!.width).toBe(5);
+    let cells = 0;
+    for (const i of [0, 3, 7, 24, 46, 66, 92]) {
+      const lv = gen.generate(i)!;
+      expect(lv.width * lv.height, `level ${i}`).toBeGreaterThanOrEqual(cells);
+      cells = lv.width * lv.height;
+    }
   });
 
   it('is deterministic and survives a to_dict/from_dict round trip', () => {
@@ -251,10 +267,10 @@ describe('GameState', () => {
     expect(GameState.openGift()).toBe(0);
     GameState.today = () => 20260102;
     expect(GameState.canGift()).toBe(true);
-    GameState.saveRun({ level: 6, gen: 4, placed: [[1, 0, 0, 0]], rots: {}, hints: 0, undos: 0 });
+    GameState.saveRun({ level: 6, gen: VERSION, placed: [[1, 0, 0, 0]], rots: {}, hints: 0, undos: 0 });
     expect(GameState.runFor(6).level).toBe(6);
     expect(GameState.runFor(5)).toEqual({});
-    GameState.saveRun({ level: 6, gen: 3 });
+    GameState.saveRun({ level: 6, gen: VERSION - 1 });
     expect(GameState.runFor(6)).toEqual({});
   });
 });

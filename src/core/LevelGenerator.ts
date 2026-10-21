@@ -5,8 +5,11 @@
 //  3. Give some pieces a feeling already true of that arrangement.
 //  4. Lift some pieces into the tray. Putting them back is, by construction, a valid solution.
 //
-// Levels are seeded by index (Godot hash + PCG32), so every index yields the same puzzle as the Godot build.
+// Levels are seeded by index (Godot hash + PCG32), so every index always yields the same puzzle.
 // Dictionaries from the GDScript are Maps here: iteration order (insertion order) feeds the RNG draws.
+//
+// Turning pieces is a later skill: levels before ROTATE_FROM_LEVEL are generated and solved with every piece fixed
+// in its tray orientation, and from there on the tray pieces start turned, so the player really has to rotate.
 
 import { NEIGHBOUR_OFFSETS } from './BoardState';
 import { godotSortCustom } from './godotSort';
@@ -17,7 +20,9 @@ import { Pcg32, godotStringHash } from './Rng';
 import { Solver } from './Solver';
 
 /** Bump when the tiers or the generator change: any saved in-progress run from an older version is dropped. */
-export const VERSION = 4;
+export const VERSION = 5;
+/** Index (0-based) of the first level where pieces can be rotated: the game's "level 10". */
+export const ROTATE_FROM_LEVEL = 9;
 /** solution_count of a candidate whose search ran out of budget. */
 export const UNKNOWN_SOLUTIONS = 99;
 
@@ -46,6 +51,9 @@ export interface Stage {
   from: number;
   len: number;
   tier: number;
+  /** Board size when the stage is smaller than its tier's board (the opening levels). */
+  w?: number;
+  h?: number;
   min_sz: number;
   max_sz: number;
   tray_a: number;
@@ -57,15 +65,24 @@ export interface Stage {
   attempts: number;
 }
 
-/** The difficulty ramp. The last stage holds its final values for every level after it. */
+/**
+ * The difficulty ramp: tiny feeling-free boards first, then bigger boards, more pieces in the tray and fewer
+ * neutral pieces. The last stage holds its final values for every level after it.
+ */
 export const STAGES: readonly Stage[] = [
-  { from: 0, len: 3, tier: 0, min_sz: 3, max_sz: 5, tray_a: 2, tray_b: 3, neutral_a: 0.7, neutral_b: 0.55, max_solutions: 4, budget: 20_000, attempts: 4 },
-  { from: 3, len: 5, tier: 0, min_sz: 2, max_sz: 5, tray_a: 3, tray_b: 5, neutral_a: 0.5, neutral_b: 0.35, max_solutions: 3, budget: 20_000, attempts: 12 },
-  { from: 8, len: 6, tier: 1, min_sz: 3, max_sz: 5, tray_a: 4, tray_b: 6, neutral_a: 0.35, neutral_b: 0.28, max_solutions: 3, budget: 8_000, attempts: 10 },
-  { from: 14, len: 10, tier: 1, min_sz: 3, max_sz: 5, tray_a: 6, tray_b: 8, neutral_a: 0.28, neutral_b: 0.22, max_solutions: 2, budget: 8_000, attempts: 10 },
-  { from: 24, len: 16, tier: 2, min_sz: 3, max_sz: 6, tray_a: 6, tray_b: 9, neutral_a: 0.25, neutral_b: 0.18, max_solutions: 2, budget: 5_000, attempts: 8 },
-  { from: 40, len: 20, tier: 3, min_sz: 3, max_sz: 6, tray_a: 8, tray_b: 11, neutral_a: 0.18, neutral_b: 0.12, max_solutions: 1, budget: 3_000, attempts: 8 },
-  { from: 60, len: 30, tier: 4, min_sz: 3, max_sz: 6, tray_a: 10, tray_b: 13, neutral_a: 0.12, neutral_b: 0.08, max_solutions: 1, budget: 3_000, attempts: 8 },
+  // Levels 1-3: a 4x4 board and one or two loose pieces, nobody has feelings yet.
+  { from: 0, len: 3, tier: 0, w: 4, h: 4, min_sz: 3, max_sz: 5, tray_a: 1, tray_b: 2, neutral_a: 1, neutral_b: 1, max_solutions: 6, budget: 20_000, attempts: 3 },
+  // 4-7: a taller board, three loose pieces by the end, the first pieces with a feeling.
+  { from: 3, len: 4, tier: 0, w: 4, h: 5, min_sz: 3, max_sz: 5, tray_a: 2, tray_b: 3, neutral_a: 1, neutral_b: 0.8, max_solutions: 5, budget: 20_000, attempts: 4 },
+  // 8-10: the 5x5 board, still mostly neutral. Level 10 is where turning pieces arrives.
+  { from: 7, len: 3, tier: 0, min_sz: 3, max_sz: 5, tray_a: 3, tray_b: 3, neutral_a: 0.8, neutral_b: 0.7, max_solutions: 4, budget: 20_000, attempts: 6 },
+  { from: 10, len: 6, tier: 0, min_sz: 2, max_sz: 5, tray_a: 3, tray_b: 4, neutral_a: 0.65, neutral_b: 0.5, max_solutions: 4, budget: 20_000, attempts: 12 },
+  { from: 16, len: 8, tier: 0, min_sz: 2, max_sz: 5, tray_a: 4, tray_b: 5, neutral_a: 0.5, neutral_b: 0.35, max_solutions: 3, budget: 20_000, attempts: 12 },
+  { from: 24, len: 8, tier: 1, min_sz: 3, max_sz: 5, tray_a: 4, tray_b: 6, neutral_a: 0.38, neutral_b: 0.3, max_solutions: 3, budget: 8_000, attempts: 10 },
+  { from: 32, len: 14, tier: 1, min_sz: 3, max_sz: 5, tray_a: 6, tray_b: 8, neutral_a: 0.28, neutral_b: 0.22, max_solutions: 2, budget: 8_000, attempts: 10 },
+  { from: 46, len: 20, tier: 2, min_sz: 3, max_sz: 6, tray_a: 6, tray_b: 9, neutral_a: 0.25, neutral_b: 0.18, max_solutions: 2, budget: 5_000, attempts: 8 },
+  { from: 66, len: 26, tier: 3, min_sz: 3, max_sz: 6, tray_a: 8, tray_b: 11, neutral_a: 0.18, neutral_b: 0.12, max_solutions: 1, budget: 3_000, attempts: 8 },
+  { from: 92, len: 36, tier: 4, min_sz: 3, max_sz: 6, tray_a: 10, tray_b: 13, neutral_a: 0.12, neutral_b: 0.08, max_solutions: 1, budget: 3_000, attempts: 8 },
 ];
 
 export function stageForLevel(levelIndex: number): Stage {
@@ -76,6 +93,23 @@ export function stageForLevel(levelIndex: number): Stage {
 
 export function tierForLevel(levelIndex: number): number {
   return stageForLevel(levelIndex).tier;
+}
+
+/** Can the player turn pieces on this level? */
+export function rotationUnlocked(levelIndex: number): boolean {
+  return levelIndex >= ROTATE_FROM_LEVEL;
+}
+
+/**
+ * Share of the tray that starts turned away from its answer. Zero while turning is locked; the first rotation levels
+ * turn a single piece, then most of the tray, then all of it.
+ */
+export function scrambleShare(levelIndex: number): number {
+  if (!rotationUnlocked(levelIndex)) return 0;
+  const k = levelIndex - ROTATE_FROM_LEVEL;
+  if (k < 3) return 0.34;
+  if (k < 10) return 0.67;
+  return 1;
 }
 
 const clampf = (x: number, lo: number, hi: number): number => Math.min(Math.max(x, lo), hi);
@@ -90,6 +124,8 @@ export function configForLevel(levelIndex: number, overrideTier = -1): TierConfi
   const t = clampf((levelIndex - stage.from) / Math.max(stage.len - 1, 1), 0, 1);
   return {
     ...TIERS[stage.tier],
+    w: stage.w ?? TIERS[stage.tier].w,
+    h: stage.h ?? TIERS[stage.tier].h,
     min_sz: stage.min_sz,
     max_sz: stage.max_sz,
     tray: roundi(lerpf(stage.tray_a, stage.tray_b, t)),
@@ -116,11 +152,13 @@ export class LevelGenerator {
     const tier = overrideTier >= 0 ? overrideTier : tierForLevel(levelIndex);
     const cfg = configForLevel(levelIndex, overrideTier);
     const rng = new Pcg32(seedForLevel(levelIndex));
+    // The fixed-tier levels the tests build always allow turning.
+    const rotate = overrideTier >= 0 || rotationUnlocked(levelIndex);
     // Keep the candidate with the fewest solutions; stop at the first one that is hard enough. Every
     // candidate is solvable by construction, so a result always exists even when none meets max_solutions.
     let best: LevelData | null = null;
     for (let a = 0; a < cfg.attempts; a++) {
-      const lv = this.attempt(rng, cfg);
+      const lv = this.attempt(rng, cfg, rotate);
       if (lv === null) continue;
       if (best === null || lv.solutionCount < best.solutionCount) best = lv;
       // A search too deep to finish is hard enough; don't pay for more tries.
@@ -133,10 +171,30 @@ export class LevelGenerator {
     best.levelIndex = levelIndex;
     best.tier = tier;
     best.rngSeed = seedForLevel(levelIndex);
+    if (overrideTier < 0) this.scramble(best, scrambleShare(levelIndex));
     return best;
   }
 
-  private attempt(rng: Pcg32, cfg: TierConfig): LevelData | null {
+  /**
+   * Turn some tray pieces away from their answer, so levels with rotation really ask for it. Uses its own
+   * generator: the puzzle itself is the same with or without the turns.
+   */
+  private scramble(lv: LevelData, share: number): void {
+    if (share <= 0) return;
+    const rng = new Pcg32((seedForLevel(lv.levelIndex) ^ 0x5bd1e995) >>> 0);
+    const turnable = lv.trayPieces.filter((p) => p.uniqueRots().length > 1);
+    const want = Math.min(turnable.length, Math.max(1, Math.round(share * lv.trayPieces.length)));
+    for (let i = turnable.length - 1; i > 0; i--) {
+      const j = rng.randiRange(0, i);
+      [turnable[i], turnable[j]] = [turnable[j], turnable[i]];
+    }
+    for (const p of turnable.slice(0, want)) {
+      const others = p.uniqueRots().filter((r) => r !== 0);
+      p.rot = others[rng.randiRange(0, others.length - 1)];
+    }
+  }
+
+  private attempt(rng: Pcg32, cfg: TierConfig, rotate: boolean): LevelData | null {
     const { w, h } = cfg;
     const groups = this.growTiling(w, h, rng, cfg.min_sz, cfg.max_sz);
     if (groups.length === 0) return null;
@@ -170,7 +228,7 @@ export class LevelGenerator {
     lv.trayPieces = tray;
     lv.turnBudget = 15 + tray.length * 7;
 
-    const solver = new Solver();
+    const solver = new Solver(rotate);
     const state = lv.buildState();
     let count = solver.countSolutions(state, lv.trayCopy(), 4, cfg.budget);
     if (solver.aborted) {

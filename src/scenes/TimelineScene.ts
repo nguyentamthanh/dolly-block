@@ -78,6 +78,17 @@ export class TimelineScene extends BaseScene {
   }
 
   protected build(): void {
+    // A scene instance is reused when it is started again: forget the views of the previous visit (they were
+    // destroyed with it, and relayout() would otherwise touch their removed textures).
+    this.cards = [];
+    this.chunks = [];
+    this.overlay = null;
+    this.overlayParts = [];
+    this.scrollY = 0;
+    this.velocity = 0;
+    this.pressId = -1;
+    this.dragging = false;
+    this.built = false;
     GameState.ensureLoaded();
     this.cameras.main.setBackgroundColor('#f9efe6');
     this.add.rectangle(-40, -40, 10, 10, Art.CREAM.toRgb()).setOrigin(0, 0).setDepth(-10).setName('bg');

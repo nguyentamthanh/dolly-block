@@ -1,4 +1,5 @@
-// Backtracking packer: which tray polyomino goes where, in which rotation. Ports scripts/core/Solver.gd.
+// Backtracking packer: which tray polyomino goes where, in which rotation. Ports scripts/core/Solver.gd, plus a
+// no-rotation mode for the first levels, where the player can't turn pieces.
 //
 // MRV on pieces (fewest legal placements first) plus pruning on hostile violations. The node accounting,
 // budget and tie-breaking mirror the GDScript exactly, because LevelGenerator accepts or rejects candidate
@@ -34,6 +35,8 @@ export class Solver {
   aborted = false;
 
   private budget = DEFAULT_NODE_BUDGET;
+  /** False on levels where the player can't turn pieces: each piece then keeps the rotation it comes with. */
+  private rotate: boolean;
   private cap = 2;
   /** Solutions found so far; the search stops at `cap` total. */
   private total = 0;
@@ -44,6 +47,15 @@ export class Solver {
   private boardLo = 0;
   private boardHi = 0;
   private useMasks = false;
+
+  constructor(rotate = true) {
+    this.rotate = rotate;
+  }
+
+  /** The rotations worth trying for `piece`: all distinct shapes, or just the one it currently has. */
+  private rotationsOf(piece: PieceData): number[] {
+    return this.rotate ? piece.uniqueRots() : [piece.rot];
+  }
 
   countSolutions(state: BoardState, tray: readonly PieceData[], cap = 2, budget = DEFAULT_NODE_BUDGET): number {
     this.nodes = 0;
@@ -105,7 +117,7 @@ export class Solver {
       const ox: number[] = [];
       const oy: number[] = [];
       const savedRot = piece.rot;
-      for (const r of piece.uniqueRots()) {
+      for (const r of this.rotationsOf(piece)) {
         piece.rot = r;
         const local = piece.localCells();
         for (let y = 0; y < height; y++) {
@@ -299,7 +311,8 @@ export class Solver {
   /** Slow path for boards over 63 cells: every legal (rotation, origin) with the mood check. */
   private placements(state: BoardState, piece: PieceData): Option[] {
     const out: Option[] = [];
-    for (const r of piece.uniqueRots()) {
+    const savedRot = piece.rot;
+    for (const r of this.rotationsOf(piece)) {
       piece.rot = r;
       const local = piece.localCells();
       for (let y = 0; y < state.height; y++) {
@@ -318,6 +331,7 @@ export class Solver {
         }
       }
     }
+    piece.rot = savedRot;
     return out;
   }
 }

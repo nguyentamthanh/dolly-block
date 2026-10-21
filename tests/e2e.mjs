@@ -79,7 +79,7 @@ console.log('\nGame: level 0 loads and lays out');
 
 console.log('\nGame: hints solve the level, undo reverts');
 {
-  const page = await open('scene=game&level=0&tut=1&gems=9999');
+  const page = await open('scene=game&level=5&tut=1&gems=9999');
   const empty0 = await game(page, (s) => s.state.emptyCount());
   await game(page, (s) => s.hint());
   await sleep(300);
@@ -150,6 +150,76 @@ console.log('\nTutorial and drag guide');
   await page.close();
 }
 
+console.log('\nRotation unlocks at level 10');
+{
+  // Press and release on the middle of tray slot 0 (a tap).
+  const tapTray = (s) => {
+    const r = s.tray.slotRect(0);
+    const x = r.x + r.w / 2;
+    const y = r.y + r.h / 2;
+    s.drag.begin(1, x, y);
+    s.drag.finish(x, y);
+    return s.inTray.map((pv) => pv && pv.piece.rot);
+  };
+  const locked = await open('scene=game&level=8&tut=1&gems=47');
+  eq(await game(locked, (s) => s.rotationEnabled), false, 'level 9 cannot rotate');
+  const before = await game(locked, (s) => s.inTray.map((pv) => pv && pv.piece.rot));
+  eq(await game(locked, tapTray), before, 'tapping a tray piece does nothing on level 9');
+  eq(await game(locked, (s) => s.inTray.every((pv) => pv && pv.slot === 'tray')), true, 'the tapped piece is back in the tray');
+  await locked.close();
+
+  const open10 = await open('scene=game&level=9&tut=1&gems=47');
+  eq(await game(open10, (s) => s.rotationEnabled), true, 'level 10 can rotate');
+  eq(await game(open10, (s) => s.inTray.some((pv) => pv && pv.piece.rot !== 0)), true, 'level 10 starts with a turned piece');
+  const was = await game(open10, (s) => s.inTray[0].piece.rot);
+  const now = (await game(open10, tapTray))[0];
+  eq(now, (was + 1) & 3, 'tapping a tray piece turns it on level 10');
+  await open10.close();
+
+  const intro = await open('scene=game&level=0&tut=0&gems=47');
+  const cards = await game(intro, (s) => s.tutorial.steps.length);
+  eq(cards, 4, 'the how-to-play cards skip the rotate card before level 10');
+  await intro.close();
+}
+
+console.log('\nFree hint after 10 idle seconds');
+{
+  const page = await open('scene=game&level=2&tut=1&gems=47');
+  eq(await game(page, (s) => s.guide === null), true, 'no guide while the player is busy or just arrived');
+  await page.waitForFunction(() => window.__game.scene.getScene('Game').guide !== null, { timeout: 20000 }).catch(() => {});
+  const shown = await game(page, (s) => ({ guide: s.guide !== null, used: s.idleHintUsed }));
+  ok(shown.guide && shown.used, 'the finger guide shows by itself');
+  eq(await game(page, (s) => s.hintsUsed), 0, 'the free hint does not count as a paid hint (stars unaffected)');
+  // Picking up a piece dismisses it, and it does not come back on this level.
+  await game(page, (s) => { const r = s.tray.slotRect(0); s.drag.begin(1, r.x + r.w / 2, r.y + r.h / 2); });
+  eq(await game(page, (s) => s.guide === null), true, 'grabbing a piece dismisses the guide');
+  await game(page, (s) => s.drag.cancel());
+  await sleep(12000);
+  eq(await game(page, (s) => s.guide === null), true, 'the hint shows only once per level');
+  await page.close();
+}
+
+console.log('\nDragging a piece back to the tray is forgiving');
+{
+  const page = await open('scene=game&level=5&tut=1&gems=47', 720, 1280);
+  const r = await game(page, (s) => {
+    // Put a piece on the board by hint, then drag it off again with the finger just ABOVE the tray.
+    s.hint();
+    const pv = [...s.onBoard.values()].find((v) => v.movable);
+    const cx = pv.left + pv.boxW / 2;
+    const cy = pv.top + pv.boxH / 2;
+    s.drag.begin(1, cx, cy);
+    const y = s.tray.y - 4;
+    s.drag.carry(cx, y);
+    const finger = s.tray.containsGlobal(cx, y);
+    s.drag.finish(cx, y);
+    return { finger, home: pv.slot === 'tray', onBoard: s.onBoard.has(pv.piece.id) };
+  });
+  eq(r.finger, false, 'the finger is outside the tray');
+  eq([r.home, r.onBoard], [true, false], 'a piece touching the tray goes back to it');
+  await page.close();
+}
+
 console.log('\nMid-level progress is saved and restored');
 {
   const page = await open('scene=game&level=6&hi=6&tut=1&gems=47');
@@ -202,6 +272,20 @@ console.log('\nMenu and timeline');
   eq(t.cards, 12, 'one polaroid per cleared level');
   ok(t.scroll > 0 && Math.abs(t.scroll - t.max) < 1, 'timeline opens scrolled to the newest photo');
   await page2.close();
+}
+
+console.log('\nRe-entering scenes');
+{
+  const page = await open('scene=mainmenu&tut=1&gems=47&stars=1&level=12');
+  await page.evaluate(async () => {
+    const g = window.__game;
+    for (const k of ['Timeline', 'MainMenu', 'Timeline', 'MainMenu']) {
+      g.scene.start(k);
+      await new Promise((r) => setTimeout(r, 900));
+    }
+  });
+  eq(await page.evaluate(() => getComputedStyle(document.getElementById('status')).display), 'none', 'menu <-> photos twice does not crash the game');
+  await page.close();
 }
 
 console.log('\nYouTube Playables rules');

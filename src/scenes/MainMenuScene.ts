@@ -43,6 +43,10 @@ export class MainMenuScene extends BaseScene {
   }
 
   protected build(): void {
+    // The scene instance is reused when it is started again; the previous visit's art was destroyed with it.
+    this.art = null;
+    this.artKey = '';
+    this.built = false;
     GameState.ensureLoaded();
     this.cameras.main.setBackgroundColor('#fad6f2');
     this.buildTopBar();

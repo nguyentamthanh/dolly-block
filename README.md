@@ -13,7 +13,7 @@ tag `godot-final`.
 ```bash
 npm install
 npm run dev            # http://localhost:5180  (dev-only URL params below)
-npm test               # unit tests: core logic, Godot-exported fixtures, sfx, tween engine
+npm test               # unit tests: core logic, level ramp, rng/sfx fixtures, tween engine
 npm run build          # typecheck + production build into dist/
 npm run package:web    # build + size budget + cozy-blocks-<version>.zip for the platforms
 npm run assets         # regenerate public/art (WebP) and public/fonts (WOFF2) from assets-src/
@@ -49,11 +49,13 @@ scripts/                build/packaging, asset optimisation, screenshot + pixel-
 
 ## Staying identical to the Godot build
 
-* **Levels.** `LevelGenerator` uses a port of Godot's PCG32 `RandomNumberGenerator`, `hash(String)` and the
-  (unstable) introsort behind `sort_custom`. `tests/levels.test.ts` compares levels 0-149 and the solver's hint
-  moves byte for byte with data exported from Godot (`tests/fixtures/godot_fixtures.json`), so saves, photos
-  and half-finished levels written by the Godot build keep working. If the generator ever changes, bump
+* **Levels.** The generator still uses a port of Godot's PCG32, `hash(String)` and `sort_custom`, but the level ramp was
+  redesigned (generator `VERSION` 5): tiny feeling-free boards first, a gentler climb with more levels, and pieces can only
+  be rotated from level 10 (`ROTATE_FROM_LEVEL`; before that the solver and generator run without rotation). Levels no
+  longer match the Godot build, so `tests/levels.test.ts` checks the ramp instead. If the generator changes again, bump
   `VERSION` in `LevelGenerator.ts` (saved runs are tied to it).
+* **Free hint.** After 10 seconds without touching a piece, `GameScene` shows the finger guide once per level
+  (no diamonds, no star penalty).
 * **Sounds.** `tests/sfx.test.ts` checks every synthesized sample against Godot's.
 * **Pixels.** `scripts/shot.mjs` + `scripts/diff.mjs` screenshot a page and diff it against `tests/baseline/*.png`
   (captured from Godot): menu, timeline and the play screen at several window shapes differ by ~0.15-0.4 % of pixels

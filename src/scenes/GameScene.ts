@@ -11,7 +11,7 @@ import { PlatformSdk } from '../platform/PlatformSdk';
 import { BoardState } from '../core/BoardState';
 import { GameState, type RunSave } from '../core/GameState';
 import { LevelData } from '../core/LevelData';
-import { LevelGenerator, TIERS, VERSION as GENERATOR_VERSION } from '../core/LevelGenerator';
+import { LevelGenerator, ROTATE_FROM_LEVEL, TIERS, VERSION as GENERATOR_VERSION, rotationUnlocked } from '../core/LevelGenerator';
 import { Loc } from '../core/Loc';
 import { Mood, type Vec, v } from '../core/PieceData';
 import { PieceData } from '../core/PieceData';
@@ -35,12 +35,20 @@ const TRAY_MAX_CELL_FRAC = 0.5;
 /** Wider than this (width / height) => landscape layout. */
 const LANDSCAPE_ASPECT = 1.0;
 const LAYOUT_SEP = 6;
+/** Seconds without touching a piece before the free hint shows (once per level). */
+const IDLE_HINT_SECONDS = 10;
 
 interface PickOrigin {
   slot: 'tray' | 'board';
   origin: Vec;
   tray: number;
   id: number;
+}
+
+interface GuideMove {
+  pv: PieceView;
+  origin: Vec;
+  cells: Vec[];
 }
 
 interface UndoEntry extends PickOrigin {
@@ -71,6 +79,10 @@ export class GameScene extends BaseScene {
   private pickOrigin: PickOrigin = { slot: 'tray', origin: INVALID, tray: -1, id: -1 };
   private undoStack: UndoEntry[] = [];
 
+  /** Clock time (ms) the player last did anything; the free hint fires IDLE_HINT_SECONDS after it. */
+  private idleSince = 0;
+  private lastTick = 0;
+  private idleHintUsed = false;
   private hintsUsed = 0;
   private undosUsed = 0;
   private combo = 0;
@@ -119,6 +131,7 @@ export class GameScene extends BaseScene {
     for (const pv of this.allViews) pv.update(dt);
     this.guide?.update(dt);
     this.tutorial.update(dt);
+    this.tickIdleHint(time);
   }
 
   protected onResize(): void {
@@ -202,6 +215,8 @@ export class GameScene extends BaseScene {
     this.undoStack = [];
     this.hintsUsed = 0;
     this.undosUsed = 0;
+    this.idleSince = this.lastTick;
+    this.idleHintUsed = false;
     this.combo = 0;
     this.prevViolated.clear();
     this.loadSerial++;
@@ -228,7 +243,6 @@ export class GameScene extends BaseScene {
     }
     // Tray pieces.
     lv.trayPieces.forEach((p, i) => {
-      p.rot = 0; // reset: the player can rotate
       const pv = this.spawnPiece(p, true);
       pv.slot = 'tray';
       pv.trayIndex = i;
@@ -245,10 +259,18 @@ export class GameScene extends BaseScene {
       this.showTutorial();
     } else if (index === 0 && GameState.starsFor(0) === 0) {
       this.startGuide();
+    } else if (index === ROTATE_FROM_LEVEL && GameState.starsFor(index) === 0) {
+      // Rotation arrives here: tell the player how it works.
+      this.hud.flashMessage(Loc.t('hud_rotate_unlocked'), 5);
     } else if (index < 3) {
-      // Early levels: a reminder of the two gestures (rotation is otherwise invisible).
+      // First levels: just the drag (turning pieces is unlocked later).
       this.hud.flashMessage(Loc.t('hud_drag_hint'), 3.5);
     }
+  }
+
+  /** Tapping a tray piece turns it, from level 10 on. */
+  get rotationEnabled(): boolean {
+    return !!this.level && rotationUnlocked(this.level.levelIndex);
   }
 
   private spawnPiece(data: PieceData, movable: boolean): PieceView {
@@ -313,7 +335,7 @@ export class GameScene extends BaseScene {
 
   private showTutorial(): void {
     this.drag.cancel();
-    this.tutorial.showTutorial();
+    this.tutorial.showTutorial(this.rotationEnabled || !this.level);
   }
 
   private onTutorialFinished(): void {
@@ -328,24 +350,85 @@ export class GameScene extends BaseScene {
   private startGuide(): void {
     this.stopGuide();
     if (!this.state || !this.acceptingInput) return;
-    let best: PieceView | null = null;
-    let bestTarget = INVALID;
-    let bestCells: Vec[] = [];
+    for (const bv of this.onBoard.values()) if (bv.movable) return; // the player already got going
+    const move = this.solutionGuideMove();
+    if (move) this.guide = new DragGuide(this, move.pv, move.origin, move.cells);
+  }
+
+  /** The tray piece that can go straight to its spot in the generator's answer. Prefers one already facing the right way. */
+  private solutionGuideMove(): GuideMove | null {
+    let best: GuideMove | null = null;
     for (const pv of this.inTray) {
       if (!pv || pv.piece.solutionWorld.length === 0) continue;
       const d = pv.piece.duplicatePiece();
       const origin = d.orientToSolution();
       if (!this.state.canPlaceCells(d.worldCells(origin))) continue;
-      if (!best || d.rot === pv.piece.rot) {
-        best = pv;
-        bestTarget = origin;
-        bestCells = d.localCells();
-        if (d.rot === pv.piece.rot) break;
-      }
+      const facing = d.rot === pv.piece.rot;
+      if (!best || facing) best = { pv, origin, cells: d.localCells() };
+      if (facing) break;
     }
-    for (const bv of this.onBoard.values()) if (bv.movable) return; // the player already got going
-    if (!best) return;
-    this.guide = new DragGuide(this, best, bestTarget, bestCells);
+    return best;
+  }
+
+  /**
+   * A move that really leads to a win from the board as the player left it (so it still works after wrong
+   * placements). Prefers a piece that is already turned the right way. Null when the position can't be solved.
+   */
+  private solverGuideMove(solver: Solver): GuideMove | null {
+    const remaining: PieceData[] = [];
+    for (const pv of this.inTray) if (pv) remaining.push(pv.piece);
+    if (remaining.length === 0) return null;
+    const answer = solver.solve(this.state, remaining);
+    if (!answer) return null;
+    let fallback: GuideMove | null = null;
+    for (const id of answer.placedIds()) {
+      const pv = this.inTray.find((t) => t?.piece.id === id);
+      const rec = answer.getPlaced(id);
+      if (!pv || !rec) continue;
+      const cells = rec.piece.localCells();
+      const move = { pv, origin: rec.origin, cells };
+      const now = pv.piece.localCells();
+      if (cells.length === now.length && cells.every((c, i) => c.x === now[i].x && c.y === now[i].y)) return move;
+      fallback ??= move;
+    }
+    return fallback;
+  }
+
+  /**
+   * The free hint: if the player has not dragged anything for IDLE_HINT_SECONDS, show the finger guide once per level.
+   * It costs nothing and doesn't count against the stars.
+   */
+  private tickIdleHint(now: number): void {
+    // Wall-clock time, not frame deltas: a slow device waits 10 seconds too. A long gap between frames (tab in the
+    // background, platform pause) is not idle time.
+    const gap = now - this.lastTick;
+    this.lastTick = now;
+    const busy = !this.state || !this.acceptingInput || this.guide !== null || this.drag.isDragging() || this.tutorial.visible || this.adPanel.visible;
+    if (this.idleHintUsed || busy || gap > 1500) {
+      this.idleSince = now;
+      return;
+    }
+    if (now - this.idleSince < IDLE_HINT_SECONDS * 1000) return;
+    this.idleSince = now;
+    this.showIdleHint();
+  }
+
+  private showIdleHint(): void {
+    const solver = new Solver(this.rotationEnabled);
+    let move = this.solverGuideMove(solver);
+    if (!move) {
+      if (!solver.aborted) {
+        // Searched everything: the board as it stands can't be finished.
+        this.idleHintUsed = true;
+        this.hud.flashMessage(Loc.t('no_way_home'), 3);
+        return;
+      }
+      move = this.solutionGuideMove();
+    }
+    if (!move) return;
+    this.idleHintUsed = true;
+    this.guide = new DragGuide(this, move.pv, move.origin, move.cells);
+    this.hud.flashMessage(Loc.t('hud_idle_hint'), 3);
   }
 
   private stopGuide(): void {
@@ -578,7 +661,7 @@ export class GameScene extends BaseScene {
       pv.shiver();
       Fx.puff(this, cx, cy, new Color(0.35, 0.3, 0.55, 1));
       Sfx.play('upset', -3);
-      if (!GameScene.upsetTipShown && this.level && this.level.levelIndex < 5) {
+      if (!GameScene.upsetTipShown && this.level && this.level.levelIndex < 10) {
         GameScene.upsetTipShown = true;
         this.hud.flashMessage(Loc.t('hud_red_ring'), 3);
       }
@@ -678,6 +761,7 @@ export class GameScene extends BaseScene {
 
   undo(): void {
     if (this.undoStack.length === 0 || !this.acceptingInput) return;
+    this.idleSince = this.lastTick;
     Sfx.play('undo');
     this.undosUsed++;
     const e = this.undoStack.pop()!;
@@ -709,6 +793,7 @@ export class GameScene extends BaseScene {
 
   hint(): void {
     if (!this.acceptingInput || !this.state) return;
+    this.idleSince = this.lastTick;
     const remaining: PieceData[] = [];
     for (const pv of this.inTray) if (pv) remaining.push(pv.piece);
     if (remaining.length === 0) return;
@@ -723,7 +808,7 @@ export class GameScene extends BaseScene {
       }
       return;
     }
-    const answer = new Solver().solve(this.state, remaining);
+    const answer = new Solver(this.rotationEnabled).solve(this.state, remaining);
     if (!answer) {
       // Refund: the player paid for a hint from an already-unsolvable position and got nothing for it.
       GameState.diamonds += GameState.HINT_COST;

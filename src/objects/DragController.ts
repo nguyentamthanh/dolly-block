@@ -13,9 +13,11 @@ import { type Vec, v } from '../core/PieceData';
 import { INVALID, PieceView, isInvalid } from './PieceView';
 
 const FINGER_LIFT = 0.9;
-/** A press on a tray piece released within TAP_TIME without moving more than TAP_SLOP px is a TAP (rotate). */
+/** A press on a tray piece released within TAP_TIME without moving more than TAP_SLOP px is a TAP (rotate, once unlocked). */
 const TAP_TIME = 0.35;
 const TAP_SLOP = 14;
+/** A dragged piece with this share of it over the tray is dropped into the tray, wherever the finger is. */
+const TRAY_TOUCH_SHARE = 0.15;
 
 const touchscreen = (): boolean => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
@@ -174,17 +176,23 @@ export class DragController {
     this.releaseState();
 
     if (isTap && fromTray) {
-      this.rotateTap(pv);
+      // Turning pieces unlocks at level 10; before that a tap just puts the piece back.
+      if (this.scene.rotationEnabled) this.rotateTap(pv);
+      else this.scene.sendToTray(pv);
       return;
     }
 
     // Dropped on the tray shelf -> always park it there, even if it came from the board. This is the only way
     // to take a placed piece back off.
-    if (this.scene.tray.containsGlobal(px, py)) {
+    // Sensitive on purpose: the finger over the tray, or the piece merely touching it (it rides above the finger on
+    // touch screens), sends it home. Only a piece that lands cleanly on the board and barely brushes the tray stays.
+    const overlap = this.scene.tray.overlapShare(pv.left, pv.top, pv.boxW, pv.boxH);
+    const canPlace = this.scene.canPlace(pv, snap);
+    if (this.scene.tray.containsGlobal(px, py) || overlap >= TRAY_TOUCH_SHARE || (overlap > 0 && !canPlace)) {
       this.scene.sendToTray(pv);
       return;
     }
-    if (this.scene.canPlace(pv, snap)) {
+    if (canPlace) {
       this.scene.commitPlace(pv, snap);
     } else {
       this.scene.onRefuse(pv, this.worldCells(pv, snap));

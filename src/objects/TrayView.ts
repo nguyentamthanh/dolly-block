@@ -106,6 +106,14 @@ export class TrayView {
     return px >= this.x && py >= this.y && px < this.x + this.w && py < this.y + this.h;
   }
 
+  /** Share (0..1) of the rect that lies over the tray. */
+  overlapShare(left: number, top: number, w: number, h: number): number {
+    if (w <= 0 || h <= 0) return 0;
+    const ox = Math.min(left + w, this.x + this.w) - Math.max(left, this.x);
+    const oy = Math.min(top + h, this.y + this.h) - Math.max(top, this.y);
+    return ox > 0 && oy > 0 ? (ox * oy) / (w * h) : 0;
+  }
+
   private paint(ci: import('../render/CanvasItem').CanvasItem): void {
     // A soft beige slab with a white dashed "drop zone" border inset from its edge. Pieces sit straight on it.
     const s = this.inner();
