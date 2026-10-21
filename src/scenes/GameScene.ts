@@ -24,6 +24,7 @@ import { TutorialOverlay } from '../ui/TutorialOverlay';
 import { BoardView } from '../objects/BoardView';
 import { DragController } from '../objects/DragController';
 import { DragGuide } from '../objects/DragGuide';
+import { RotateGuide } from '../objects/RotateGuide';
 import { Hud } from '../objects/Hud';
 import { INVALID, PieceView, isInvalid } from '../objects/PieceView';
 import { TrayView } from '../objects/TrayView';
@@ -68,7 +69,7 @@ export class GameScene extends BaseScene {
   private winPanel!: LevelCompletePanel;
   private adPanel!: AdRewardPanel;
   private tutorial!: TutorialOverlay;
-  private guide: DragGuide | null = null;
+  private guide: DragGuide | RotateGuide | null = null;
   private bg!: Phaser.GameObjects.Rectangle;
 
   /** piece id -> PieceView for the board */
@@ -260,8 +261,14 @@ export class GameScene extends BaseScene {
     } else if (index === 0 && GameState.starsFor(0) === 0) {
       this.startGuide();
     } else if (index === ROTATE_FROM_LEVEL && GameState.starsFor(index) === 0) {
-      // Rotation arrives here: tell the player how it works.
-      this.hud.flashMessage(Loc.t('hud_rotate_unlocked'), 5);
+      // Rotation arrives here: tell the player how it works, with a finger tapping a piece that needs turning.
+      // Once the pieces have popped in, so the finger and its caption show up together with the piece they point at.
+      const loaded = this.level;
+      this.time.delayedCall(1200, () => {
+        if (this.level !== loaded || this.drag.isDragging() || this.guide) return;
+        this.startRotateGuide();
+        if (this.guide) this.hud.flashMessage(Loc.t('hud_rotate_unlocked'), 8);
+      });
     } else if (index < 3) {
       // First levels: just the drag (turning pieces is unlocked later).
       this.hud.flashMessage(Loc.t('hud_drag_hint'), 3.5);
@@ -353,6 +360,24 @@ export class GameScene extends BaseScene {
     for (const bv of this.onBoard.values()) if (bv.movable) return; // the player already got going
     const move = this.solutionGuideMove();
     if (move) this.guide = new DragGuide(this, move.pv, move.origin, move.cells);
+  }
+
+  /** Tap-to-rotate coach mark: a tray piece facing away from its spot in the answer, so the tap shown is a useful one. */
+  private startRotateGuide(): void {
+    this.stopGuide();
+    if (!this.state || !this.acceptingInput) return;
+    let pick: PieceView | null = null;
+    for (const pv of this.inTray) {
+      if (!pv || pv.piece.solutionWorld.length === 0 || pv.piece.uniqueRots().length < 2) continue;
+      const d = pv.piece.duplicatePiece();
+      d.orientToSolution();
+      if (d.rot !== pv.piece.rot) {
+        pick = pv;
+        break;
+      }
+      pick ??= pv;
+    }
+    if (pick) this.guide = new RotateGuide(this, pick);
   }
 
   /** The tray piece that can go straight to its spot in the generator's answer. Prefers one already facing the right way. */

@@ -305,6 +305,7 @@ export class Hud {
     runKeyed(this.scene, this.toastView, 'toast', (t) => {
       t.tweenInterval(hold);
       t.setParallel(true);
+      t.chain(); // the fade starts after the hold, not alongside it
       t.tweenProperty(this.toastView, 'alpha', 0, 0.4);
       t.tweenProperty(this.toastLabel, 'alpha', 0, 0.4);
     });
