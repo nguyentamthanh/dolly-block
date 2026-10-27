@@ -99,6 +99,28 @@ console.log('\nGame: hints solve the level, undo reverts');
   await page.close();
 }
 
+console.log('\nGame: restart needs a second tap, then resets the board but keeps the assist count');
+{
+  const page = await open('scene=game&level=5&tut=1&gems=9999');
+  const empty0 = await game(page, (s) => s.state.emptyCount());
+  await game(page, (s) => s.hint());
+  await sleep(300);
+  const armed = await game(page, (s) => {
+    s.onRestartPressed();
+    return { empty: s.state.emptyCount(), hints: s.hintsUsed };
+  });
+  ok(armed.empty < empty0, 'the first tap only asks for confirmation');
+  const done = await game(page, (s) => {
+    s.onRestartPressed();
+    return { empty: s.state.emptyCount(), hints: s.hintsUsed, tray: s.inTray.filter(Boolean).length, want: s.level.trayPieces.length, stars: s.scoreStars() };
+  });
+  eq(done.empty, empty0, 'the second tap clears the board');
+  eq(done.tray, done.want, 'every tray piece is back in the tray');
+  eq(done.hints, 1, 'the hint already spent still counts');
+  eq(done.stars, 2, 'so the level can no longer be a flawless 3 stars');
+  await page.close();
+}
+
 console.log('\nGame: real scoring, rewards and hint cost');
 {
   const page = await open('scene=game&level=1&tut=1&gems=47');

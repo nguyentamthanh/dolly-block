@@ -139,6 +139,21 @@ export function drawIcon(ci: CanvasItem, kind: string, cx: number, cy: number, r
       );
       break;
     }
+    case 'restart': {
+      // Almost a full circle drawn clockwise, with the arrowhead at its end pointing into the gap at the top.
+      const rr = r * 0.62;
+      const a1 = Math.PI * 1.45;
+      ci.drawArc(cx, cy, rr, -Math.PI * 0.2, a1, 28, col, w);
+      const ex = cx + Math.cos(a1) * rr;
+      const ey = cy + Math.sin(a1) * rr;
+      const nx = Math.cos(a1);
+      const ny = Math.sin(a1);
+      const tx = -ny;
+      const ty = nx;
+      const half = rr * 0.55;
+      ci.drawColoredPolygon([[ex + tx * rr * 0.75, ey + ty * rr * 0.75], [ex + nx * half, ey + ny * half], [ex - nx * half, ey - ny * half]], col);
+      break;
+    }
     case 'hint': {
       const bcx = cx;
       const bcy = cy - r * 0.18;

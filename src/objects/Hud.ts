@@ -1,6 +1,6 @@
 // Top of the game screen. Two rows float straight on the cream backdrop:
 //   row 1: round back + "?" (how to play) buttons | "LEVEL N" pill + tier pill | gem chip
-//   row 2: round Undo button | "placed / total" progress bar | round Hint button with a gem-cost badge
+//   row 2: round Undo + Restart buttons | "placed / total" progress bar | round Hint button with a gem-cost badge
 // Ports scripts/ui/HUD.gd; the Godot containers become explicit positions (same constants).
 
 import type { BaseScene } from '../scenes/BaseScene';
@@ -30,12 +30,14 @@ const HUD_DEPTH = 12;
 export class Hud {
   onUndo: () => void = () => {};
   onHint: () => void = () => {};
+  onRestart: () => void = () => {};
   onMenu: () => void = () => {};
   onHelp: () => void = () => {};
 
   private back: UiButton;
   private help: UiButton;
   private undo: UiButton;
+  private restart: UiButton;
   private hint: UiButton;
   private chip: DiamondChip;
   private titlePill: CanvasView;
@@ -70,6 +72,7 @@ export class Hud {
     this.back = mk('back', () => this.onMenu());
     this.help = mk('help', () => this.onHelp());
     this.undo = mk('undo', () => this.onUndo());
+    this.restart = mk('restart', () => this.onRestart());
     this.hint = iconButton(scene, 'search', Art.HUD_BROWN, BTN, Color.TRANSPARENT, true, (ci) => this.drawBadge(ci));
     this.hint.setDepth(HUD_DEPTH);
     this.hint.onPress = () => this.onHint();
@@ -154,8 +157,9 @@ export class Hud {
     this.layoutTier(colTop + titleH - 6, tierH);
 
     this.undo.setTopLeft(m, r2 + (ROW2_H - BTN) / 2);
+    this.restart.setTopLeft(m + BTN + 4, r2 + (ROW2_H - BTN) / 2);
     this.hint.setTopLeft(W - m - BTN, r2 + (ROW2_H - BTN) / 2);
-    const px = m + BTN + 14;
+    const px = m + 2 * BTN + 4 + 14;
     const pw = W - m - BTN - 14 - px;
     this.progress.resizeView(pw, 40);
     this.progress.setPosition(px, r2 + (ROW2_H - 40) / 2);

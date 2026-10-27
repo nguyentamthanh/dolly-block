@@ -38,6 +38,8 @@ const LANDSCAPE_ASPECT = 1.0;
 const LAYOUT_SEP = 6;
 /** Seconds without touching a piece before the free hint shows (once per level). */
 const IDLE_HINT_SECONDS = 10;
+/** After the first tap on Restart (with pieces on the board), how long a second tap confirms it. */
+const RESTART_CONFIRM_MS = 2500;
 
 interface PickOrigin {
   slot: 'tray' | 'board';
@@ -91,6 +93,7 @@ export class GameScene extends BaseScene {
   private quietRefresh = false;
   private loadSerial = 0;
   private relayoutQueued = false;
+  private restartArmedUntil = 0;
 
   private static upsetTipShown = false;
 
@@ -109,6 +112,7 @@ export class GameScene extends BaseScene {
 
     this.hud.onUndo = () => this.undo();
     this.hud.onHint = () => this.hint();
+    this.hud.onRestart = () => this.onRestartPressed();
     this.hud.onMenu = () => this.onMenuPressed();
     this.hud.onHelp = () => this.showTutorial();
 
@@ -780,6 +784,31 @@ export class GameScene extends BaseScene {
   private onMenuPressed(): void {
     Sfx.play('whoosh', -4);
     go(this, 'MainMenu');
+  }
+
+  /**
+   * Start the current level over. With pieces on the board a second tap within RESTART_CONFIRM_MS is needed, so a
+   * stray tap can't throw the work away. Hints and undos already spent still count towards the stars (as when
+   * quitting and returning), so restarting is a fresh board, not a way to dodge the penalty.
+   */
+  private onRestartPressed(): void {
+    if (!this.state || !this.acceptingInput) return;
+    const hasWork = [...this.onBoard.values()].some((pv) => pv.movable);
+    if (hasWork && this.time.now > this.restartArmedUntil) {
+      this.restartArmedUntil = this.time.now + RESTART_CONFIRM_MS;
+      this.hud.flashMessage(Loc.t('restart_confirm'), RESTART_CONFIRM_MS / 1000);
+      return;
+    }
+    this.restartArmedUntil = 0;
+    const index = this.level.levelIndex;
+    const { hintsUsed, undosUsed } = this;
+    // Only clear the save if it belongs to this level (a replay of a cleared level must not wipe the frontier's run).
+    if (Object.keys(GameState.runFor(index)).length > 0) GameState.clearRun();
+    Sfx.play('whoosh', -4);
+    this.loadLevel(index);
+    this.hintsUsed = hintsUsed;
+    this.undosUsed = undosUsed;
+    this.saveRun();
   }
 
   // --- undo / hint -------------------------------------------------------------------------------------------------------------
