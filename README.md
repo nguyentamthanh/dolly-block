@@ -41,7 +41,9 @@ src/
   core/                 pure game logic, no Phaser: BoardState, Solver, LevelGenerator, GameState, Loc, ...
   render/               Canvas 2D drawing layer: CanvasItem, Art (all procedural art), CanvasView, Fonts, Viewport
   fx/                   particles, rings, floating text, screen shake
-  audio/                procedural sound effects rendered with Web Audio (no audio files)
+  audio/                procedural sound effects and background music rendered with Web Audio (no audio files).
+                        Music.ts loops the track from musicSynth.ts: rendered in idle time after the menu, started on
+                        the first gesture, gated by the sound toggle, silenced with the SFX by the platform mute
   platform/             Playgama Bridge integration (storage, ads, pause/mute, game_ready)
 tests/                  Vitest tests, Godot-exported fixtures (fixtures/), reference screenshots (baseline/), e2e.mjs
 scripts/                build/packaging, asset optimisation, screenshot + pixel-diff tools

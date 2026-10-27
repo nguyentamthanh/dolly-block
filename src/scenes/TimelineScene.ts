@@ -13,6 +13,7 @@ import { Color, hex } from '../render/Color';
 import { drawLabel, labelStyle, lineHeight, textWidth } from '../render/Fonts';
 import { GameState, type PhotoRecord } from '../core/GameState';
 import { Loc } from '../core/Loc';
+import { Music } from '../audio/Music';
 import { Sfx } from '../audio/Sfx';
 import * as Fx from '../fx/Fx';
 import { Z } from '../fx/Fx';
@@ -554,6 +555,7 @@ export class TimelineScene extends BaseScene {
         soundBtn.onPress = () => {
           GameState.soundEnabled = !GameState.soundEnabled;
           GameState.saveProgress();
+          Music.sync();
           const old = soundBtn;
           soundBtn = this.popupButton(soundText(), 280, () => {});
           old.destroy();

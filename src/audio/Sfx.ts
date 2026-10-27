@@ -39,6 +39,12 @@ export class Sfx {
     for (const ev of ['pointerdown', 'touchstart', 'keydown']) target.addEventListener(ev, unlock, { passive: true });
   }
 
+  /** The shared context and master gain (created on first call), so music rides the same platform mute. */
+  static graph(): { ctx: AudioContext; master: GainNode } | null {
+    const ctx = Sfx.ensureContext();
+    return ctx && Sfx.master ? { ctx, master: Sfx.master } : null;
+  }
+
   private static ensureContext(): AudioContext | null {
     if (Sfx.ctx) return Sfx.ctx;
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

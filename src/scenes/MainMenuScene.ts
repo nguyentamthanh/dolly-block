@@ -13,6 +13,7 @@ import { labelStyle, lineHeight } from '../render/Fonts';
 import { GameState } from '../core/GameState';
 import { Loc } from '../core/Loc';
 import { PlatformSdk } from '../platform/PlatformSdk';
+import { Music } from '../audio/Music';
 import { Sfx } from '../audio/Sfx';
 import { Z } from '../fx/Fx';
 import { LanguagePanel } from '../ui/LanguagePanel';
@@ -192,6 +193,7 @@ export class MainMenuScene extends BaseScene {
   private toggleSound(): void {
     GameState.soundEnabled = !GameState.soundEnabled;
     GameState.saveProgress();
+    Music.sync();
     Sfx.play('button_tap');
     this.soundBtn.destroy();
     this.soundBtn = iconButton(this, this.soundKind(), Color.TRANSPARENT, 64);

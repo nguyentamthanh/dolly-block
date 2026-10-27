@@ -1,3 +1,4 @@
+import { Music } from './audio/Music';
 import { Sfx } from './audio/Sfx';
 import { applyDevParams } from './dev';
 import { createGame } from './game';
@@ -17,6 +18,7 @@ async function boot(): Promise<void> {
   applyDevParams();
   Sfx.hookUnlock();
   createGame();
+  Music.init();
 }
 
 void boot();
