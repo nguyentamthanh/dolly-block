@@ -16,6 +16,9 @@
 	"platforms": {
 		"youtube": {
 			"sendAnalyticsEvents": false
+		},
+		"crazy_games": {
+			"sendAnalyticsEvents": false
 		}
 	}
 }

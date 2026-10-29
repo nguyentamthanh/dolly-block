@@ -127,6 +127,8 @@ export class GameScene extends BaseScene {
 
     this.layout();
     this.loadLevel(GameState.currentLevel);
+    PlatformSdk.gameplayStart();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => PlatformSdk.gameplayStop());
   }
 
   update(time: number, deltaMs: number): void {
@@ -713,6 +715,7 @@ export class GameScene extends BaseScene {
   private checkWin(): void {
     if (!this.state.isSolved()) return;
     this.acceptingInput = false;
+    PlatformSdk.gameplayStop();
     const stars = this.scoreStars();
     GameState.completeLevel(this.level.levelIndex, stars, this.state.snapshot(), GameState.bgForLevel(this.level.levelIndex));
     // Large-tier celebration: a diagonal "happy wave" hops across the board with ^ ^ eyes and sparkles, a headline
@@ -779,6 +782,7 @@ export class GameScene extends BaseScene {
     // The win screen's gem fly-in may not have run if CONTINUE came early.
     this.hud.setDiamonds(GameState.diamonds);
     this.loadLevel(this.level.levelIndex + 1);
+    PlatformSdk.gameplayStart();
   }
 
   private onMenuPressed(): void {

@@ -47,6 +47,7 @@ export class PlatformSdk {
   private static bridge: Bridge | null = null;
   private static web = false;
   private static gameReadySent = false;
+  private static gameplayActive = false;
   private static platformMuted = false;
   private static platformPaused = false;
   private static adOpen = false;
@@ -152,6 +153,30 @@ export class PlatformSdk {
       bridge.platform.sendMessage(bridge.PLATFORM_MESSAGE.GAME_READY);
     } catch (err) {
       console.warn('PlatformSdk: game_ready failed', err);
+    }
+  }
+
+  /** The player is actively solving a level (CrazyGames' gameplayStart; other hosts ignore it). Idempotent. */
+  static gameplayStart(): void {
+    if (PlatformSdk.gameplayActive) return;
+    PlatformSdk.gameplayActive = true;
+    PlatformSdk.sendMessage('GAMEPLAY_STARTED');
+  }
+
+  /** Back in a menu, a win panel or a transition (CrazyGames' gameplayStop). Idempotent. */
+  static gameplayStop(): void {
+    if (!PlatformSdk.gameplayActive) return;
+    PlatformSdk.gameplayActive = false;
+    PlatformSdk.sendMessage('GAMEPLAY_STOPPED');
+  }
+
+  private static sendMessage(name: 'GAMEPLAY_STARTED' | 'GAMEPLAY_STOPPED'): void {
+    const bridge = PlatformSdk.bridge;
+    if (!bridge) return;
+    try {
+      bridge.platform.sendMessage(bridge.PLATFORM_MESSAGE[name]);
+    } catch (err) {
+      console.warn(`PlatformSdk: ${name} failed`, err);
     }
   }
 
