@@ -33,7 +33,7 @@ console.log('pieces', JSON.stringify(info.pieces.map((p) => [p.id, p.rotNeeded, 
 
 for (const p of info.pieces) {
   // rotate by tapping until the orientation matches
-  for (let k = 0; k < p.rotNeeded; k++) {
+  for (let k = 0; k < ((p.rotNeeded - p.rotNow) & 3); k++) {
     const pos = await page.evaluate((idx) => {
       const s = window.__game.scene.getScene('Game');
       const pv = s.inTray[idx];

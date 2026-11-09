@@ -15,6 +15,7 @@ import { Sfx } from '../audio/Sfx';
 
 const STORAGE_KEY = 'progress';
 const LOCAL_KEY = 'cozy-blocks/progress';
+const STORAGE_TIMEOUT_MS = 5000;
 
 interface Emitter {
   on(event: string, cb: (v: never) => void): void;
@@ -114,7 +115,11 @@ export class PlatformSdk {
     const bridge = PlatformSdk.bridge;
     if (PlatformSdk.web && bridge) {
       try {
-        const data = await bridge.storage.get(STORAGE_KEY, false);
+        // A platform whose SDK never came up can leave this promise pending forever; don't hold the game hostage.
+        const data = await Promise.race([
+          bridge.storage.get(STORAGE_KEY, false),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), STORAGE_TIMEOUT_MS)),
+        ]);
         if (typeof data === 'string' && data.length > 0) {
           GameState.loadFromText(data);
           PlatformSdk.isLoaded = true;

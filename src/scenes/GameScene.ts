@@ -207,7 +207,7 @@ export class GameScene extends BaseScene {
 
   private move(pv: PieceView, x: number, y: number, duration: number): void {
     if (duration <= 0) pv.setTopLeft(x, y);
-    else pv.travelTo(x, y);
+    else pv.travelTo(x, y, duration);
   }
 
   // --- level lifecycle ---------------------------------------------------------------------------------------------
@@ -535,7 +535,7 @@ export class GameScene extends BaseScene {
     pv.setCellSize(this.board.cellSize);
     const x = this.board.x + this.board.originX + cell.x * this.board.cellSize;
     const y = this.board.y + this.board.originY + cell.y * this.board.cellSize;
-    this.move(pv, x, y, 0.13);
+    this.move(pv, x, y, 0.04);
     pv.setDragging(false);
     pv.squash();
     this.placeJuice(pv, x + pv.boxW * 0.5, y + pv.boxH * 0.5);
@@ -585,7 +585,7 @@ export class GameScene extends BaseScene {
       pv.slot = 'board';
       pv.origin = from.origin;
       pv.setCellSize(this.board.cellSize);
-      this.move(pv, this.board.x + this.board.originX + from.origin.x * this.board.cellSize, this.board.y + this.board.originY + from.origin.y * this.board.cellSize, 0.13);
+      this.move(pv, this.board.x + this.board.originX + from.origin.x * this.board.cellSize, this.board.y + this.board.originY + from.origin.y * this.board.cellSize, 0.1);
     } else {
       this.toTray(pv);
     }
@@ -627,7 +627,7 @@ export class GameScene extends BaseScene {
    * thought bubble (which pokes out above and to the right), so neighbours never overlap; and the cell size is
    * capped so a lone 1-cell piece doesn't balloon next to longer ones.
    */
-  private fitInTraySlot(pv: PieceView, duration = 0.13): void {
+  private fitInTraySlot(pv: PieceView, duration = 0.1): void {
     const slot = this.tray.slotRect(pv.trayIndex);
     const bb = pv.piece.bbox();
     const bx = Math.max(bb.x, 1);

@@ -3,6 +3,7 @@
 // It holds a reference to the BoardState but never mutates it: placement decisions belong to GameScene. This
 // class answers geometry questions only ("where is cell (2,3)?", "which cell is under this finger?").
 
+import * as Phaser from 'phaser';
 import type { BaseScene } from '../scenes/BaseScene';
 import * as Art from '../render/Art';
 import { BoardState } from '../core/BoardState';
@@ -13,6 +14,8 @@ import { INVALID, isInvalid } from './PieceView';
 
 export class BoardView {
   readonly view: CanvasView;
+  /** Drag preview, drawn apart from the board texture so a fast drag never repaints the whole grid. */
+  private readonly ghost: Phaser.GameObjects.Graphics;
   state: BoardState | null = null;
   cellSize = 64;
   /** top-left of the grid, relative to the board's rect */
@@ -34,6 +37,7 @@ export class BoardView {
   constructor(scene: BaseScene) {
     this.view = new CanvasView(scene, 0, 0, 100, 100, (ci) => this.paint(ci), 48);
     this.view.setDepth(10);
+    this.ghost = scene.add.graphics().setDepth(15);
   }
 
   setState(s: BoardState | null): void {
@@ -48,6 +52,7 @@ export class BoardView {
     this.w = w;
     this.h = h;
     this.view.setPosition(x, y);
+    this.ghost.setPosition(x, y);
     this.view.resizeView(w, h);
     this.relayout();
   }
@@ -74,6 +79,7 @@ export class BoardView {
     this.originX = Math.floor((this.w - gridW) * 0.5);
     this.originY = Math.floor((this.h - gridH - Art.BOARD_SHADOW_REACH) * 0.5);
     this.view.invalidate();
+    this.syncGhost();
   }
 
   cellRectLocal(c: Vec): { x: number; y: number; w: number; h: number } {
@@ -109,36 +115,25 @@ export class BoardView {
   }
 
   setHighlightCells(cells: Vec[], ok: boolean): void {
-    let changed = this.highlightCells.length !== cells.length;
-    if (!changed) {
-      for (let i = 0; i < cells.length; i++) {
-        if (this.highlightCells[i].x !== cells[i].x || this.highlightCells[i].y !== cells[i].y) {
-          changed = true;
-          break;
-        }
-      }
-    }
-    if (changed || this.highlightOk !== ok) {
-      this.highlightCells = cells.slice();
-      this.highlightOk = ok;
-      this.view.invalidate();
-    }
+    this.highlightCells = cells;
+    this.highlightOk = ok;
+    this.syncGhost();
   }
 
   clearHighlight(): void {
     this.ghostCan = false;
-    this.setHighlightCells([], false);
-    this.view.invalidate();
+    this.highlightCells = [];
+    this.highlightOk = false;
+    this.syncGhost();
   }
 
   /** Full drop preview for an airborne piece: `can` = legal drop, `happy` = legal and upsets nobody. */
   setPreview(cells: Vec[], can: boolean, happy: boolean, color: Color): void {
-    if (this.ghostCan !== can || !this.ghostColor.equals(color)) {
-      this.ghostCan = can;
-      this.ghostColor = color;
-      this.view.invalidate();
-    }
-    this.setHighlightCells(cells, happy);
+    this.ghostCan = can;
+    this.ghostColor = color;
+    this.highlightCells = cells;
+    this.highlightOk = happy;
+    this.syncGhost();
   }
 
   /** Red flash over cells a piece was just refused from. */
@@ -168,27 +163,6 @@ export class BoardView {
     if (!s) return;
     Art.drawBoard(ci, this.playable, this.originX, this.originY, this.cellSize);
 
-    const hl = this.highlightCells;
-    if (hl.length > 0 && this.ghostCan && this.ghostColor.a > 0) {
-      // Legal drop: show where the piece will sit as a ghost: a pale fill with a slightly deeper rim of the
-      // piece's own colour, both opaque (stacked translucent cell rects would show seams).
-      let ghost = this.ghostColor.lerp(Color.WHITE, 0.45);
-      let rim = this.ghostColor.darkened(0.06);
-      if (!this.highlightOk) {
-        ghost = ghost.lerp(Art.BAD_TINT, 0.55);
-        rim = rim.lerp(Art.BAD_TINT, 0.55);
-      }
-      Art.drawGhost(ci, this.originX, this.originY, this.cellSize, hl, ghost, rim);
-    } else {
-      // Illegal drop: tint only the playable cells the piece covers.
-      for (const pos of hl) {
-        if (s.isPlayable(pos)) {
-          const r = this.cellRectLocal(pos);
-          Art.drawCellHighlight(ci, r.x, r.y, r.w, this.highlightOk ? Art.OK_TINT : Art.BAD_TINT);
-        }
-      }
-    }
-
     if (this.flash > 0) {
       const c = Art.BAD_TINT.withAlpha(0.7 * this.flash);
       for (const pos of this.flashCells) {
@@ -197,6 +171,31 @@ export class BoardView {
           ci.drawStyleBox(Art.box(c, this.cellSize * 0.22), r.x, r.y, r.w, r.h);
         }
       }
+    }
+  }
+
+  /** Cell preview while dragging. Graphics only — the board canvas stays cached. */
+  private syncGhost(): void {
+    const g = this.ghost;
+    g.clear();
+    const s = this.state;
+    const hl = this.highlightCells;
+    if (!s || hl.length === 0) return;
+    const cs = this.cellSize;
+    const inset = cs * 0.08;
+    let col: Color;
+    if (this.ghostCan && this.ghostColor.a > 0) {
+      col = this.ghostColor.lerp(Color.WHITE, 0.45);
+      if (!this.highlightOk) col = col.lerp(Art.BAD_TINT, 0.55);
+      col = col.withAlpha(0.55);
+    } else {
+      col = (this.highlightOk ? Art.OK_TINT : Art.BAD_TINT).withAlpha(0.45);
+    }
+    g.fillStyle(col.toRgb(), col.a);
+    const r = cs * 0.18;
+    for (const c of hl) {
+      if (!s.isPlayable(c)) continue;
+      g.fillRoundedRect(this.originX + c.x * cs + inset, this.originY + c.y * cs + inset, cs - inset * 2, cs - inset * 2, r);
     }
   }
 }

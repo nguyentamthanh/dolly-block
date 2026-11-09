@@ -16,7 +16,7 @@ import { CanvasView } from '../render/CanvasView';
 import { Mood, PieceData, type Vec, v } from '../core/PieceData';
 import { Z } from '../fx/Fx';
 import { EaseKind, Trans } from '../ui/Tween';
-import { runKeyed, stopAll } from '../ui/UiFx';
+import { runKeyed, stop, stopAll } from '../ui/UiFx';
 
 export const INVALID: Vec = { x: -1, y: -1 };
 export const isInvalid = (c: Vec | null | undefined): boolean => !c || (c.x === -1 && c.y === -1);
@@ -46,8 +46,6 @@ export class PieceView extends Phaser.GameObjects.Container {
   private phase = Math.random() * Math.PI * 2;
   private blink = 0;
   private nextBlink = 1 + Math.random() * 3.5;
-  private dragDx = 0;
-
   constructor(scene: BaseScene) {
     super(scene, 0, 0);
     this.sc = scene;
@@ -185,12 +183,6 @@ export class PieceView extends Phaser.GameObjects.Container {
         this.startBlink();
       }
     }
-    // Carry tilt: lean into horizontal motion, spring back when still.
-    if (this.dragging) {
-      this.dragDx += (0 - this.dragDx) * Math.min(1, dt * 10);
-      const target = Math.min(Math.max(this.dragDx * 0.012, -0.2), 0.2);
-      this.rotation += (target - this.rotation) * Math.min(1, dt * 14);
-    }
     // Jelly breathing (tray only): on the board every edge must sit exactly on the grid.
     if (this.slot === 'tray' && !this.dragging) {
       const b = Math.sin(this.time * 2.2 + this.phase) * 0.012;
@@ -212,10 +204,6 @@ export class PieceView extends Phaser.GameObjects.Container {
   private setBlink(x: number): void {
     this.blink = x;
     this.bodyView.invalidate();
-  }
-
-  feedDragMotion(dx: number): void {
-    this.dragDx += (dx - this.dragDx) * 0.5;
   }
 
   setUnhappy(on: boolean): void {
@@ -244,16 +232,18 @@ export class PieceView extends Phaser.GameObjects.Container {
   setDragging(on: boolean): void {
     this.dragging = on;
     this.updateDepth();
-    this.dragDx = 0;
-    this.fx((t) => {
-      t.setParallel(true);
-      if (on) {
-        t.tweenProperty(this, 'scale', [1.1, 1.1], 0.14).setTrans(Trans.BACK).setEase(EaseKind.OUT);
-      } else {
-        t.tweenProperty(this, 'scale', [1, 1], 0.1);
-        t.tweenProperty(this, 'rotation', 0, 0.1);
-      }
-    });
+    if (on) {
+      // No tween while dragging: tween + tiny pieces = visibly laggy; scale is instant like Block Blast.
+      stop(this, 'fx');
+      this.rotation = 0;
+      this.setScale(1, 1);
+    } else {
+      this.fx((t) => {
+        t.setParallel(true);
+        t.tweenProperty(this, 'scale', [1, 1], 0.06);
+        t.tweenProperty(this, 'rotation', 0, 0.06);
+      });
+    }
   }
 
   /** Land-on-board squash and stretch. */
@@ -318,10 +308,13 @@ export class PieceView extends Phaser.GameObjects.Container {
     });
   }
 
-  travelTo(x: number, y: number): void {
+  travelTo(x: number, y: number, duration = 0.16): void {
     runKeyed(this.sc, this, 'move', (t) => {
       t.setParallel(true);
-      t.tweenProperty(this, 'topLeft', [x, y], 0.18).setTrans(Trans.BACK).setEase(EaseKind.OUT);
+      const snap = duration <= 0.08;
+      t.tweenProperty(this, 'topLeft', [x, y], duration)
+        .setTrans(snap ? Trans.QUAD : Trans.BACK)
+        .setEase(EaseKind.OUT);
     });
   }
 

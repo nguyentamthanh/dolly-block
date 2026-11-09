@@ -9,15 +9,23 @@ import * as Phaser from 'phaser';
 import type { GameScene } from '../scenes/GameScene';
 import { Sfx } from '../audio/Sfx';
 import { paletteFill } from '../render/Art';
+import { Viewport } from '../render/Viewport';
 import { type Vec, v } from '../core/PieceData';
 import { INVALID, PieceView, isInvalid } from './PieceView';
 
-const FINGER_LIFT = 0.9;
+/** Touch-only Y offset (cell fractions) so the piece clears the thumb; smaller = snappier, closer to the finger. */
+const FINGER_LIFT = 0.25;
 /** A press on a tray piece released within TAP_TIME without moving more than TAP_SLOP px is a TAP (rotate, once unlocked). */
 const TAP_TIME = 0.35;
-const TAP_SLOP = 14;
+const TAP_SLOP = 10;
 /** A dragged piece with this share of it over the tray is dropped into the tray, wherever the finger is. */
 const TRAY_TOUCH_SHARE = 0.15;
+/**
+ * Flick tolerance in cells. On release, if the cell the piece is shown over won't take it, the nearest cell that
+ * will (within this many cells) is used instead. Lets a quick flick or a slightly sloppy drop still land, instead
+ * of bouncing home. 0 disables it.
+ */
+const SNAP_FORGIVE_CELLS = 1;
 
 const touchscreen = (): boolean => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
@@ -27,7 +35,6 @@ export class DragController {
   private grabOffsetY = 0;
   private lift = 0;
   private lastCell: Vec = INVALID;
-  private lastPx = 0;
   private pressX = 0;
   private pressY = 0;
   private pressTime = 0;
@@ -121,7 +128,6 @@ export class DragController {
 
     pv.setDragging(true);
     Sfx.play('pickup', 0, 0.95 + Math.random() * 0.13);
-    this.lastPx = px;
     this.carry(px, py);
   }
 
@@ -135,9 +141,9 @@ export class DragController {
     if (!pv) return;
     if (!this.moved && Math.hypot(px - this.pressX, py - this.pressY) > TAP_SLOP) this.moved = true;
     const [tx, ty] = this.topLeftFor(px, py);
-    pv.setTopLeft(tx, ty);
-    pv.feedDragMotion(px - this.lastPx);
-    this.lastPx = px;
+    // Snap to device pixels so small pieces don't shimmer between frames.
+    const rs = Viewport.rs;
+    pv.setTopLeft(Math.round(tx * rs) / rs, Math.round(ty * rs) / rs);
 
     const board = this.scene.board;
     const snap = board.cellRoundAt(tx, ty);
@@ -161,7 +167,6 @@ export class DragController {
     const happy = this.scene.placementHappy(pv, snap);
     const can = this.scene.canPlace(pv, snap);
     board.setPreview(world, can, happy, paletteFill(pv.piece.color));
-    if (can) Sfx.play('tick', -8, 1 + Math.random() * 0.1);
   }
 
   private finish(px: number, py: number): void {
@@ -187,17 +192,45 @@ export class DragController {
     // Sensitive on purpose: the finger over the tray, or the piece merely touching it (it rides above the finger on
     // touch screens), sends it home. Only a piece that lands cleanly on the board and barely brushes the tray stays.
     const overlap = this.scene.tray.overlapShare(pv.left, pv.top, pv.boxW, pv.boxH);
-    const canPlace = this.scene.canPlace(pv, snap);
+    // Forgiving release: if the exact cell won't take the piece, land on the nearest cell that will. This is what
+    // makes a fast flick or a near-miss still connect instead of snapping home.
+    let target = snap;
+    let canPlace = this.scene.canPlace(pv, snap);
+    if (!canPlace) {
+      const alt = this.nearestPlaceable(pv, snap);
+      if (!isInvalid(alt)) {
+        target = alt;
+        canPlace = true;
+      }
+    }
     if (this.scene.tray.containsGlobal(px, py) || overlap >= TRAY_TOUCH_SHARE || (overlap > 0 && !canPlace)) {
       this.scene.sendToTray(pv);
       return;
     }
     if (canPlace) {
-      this.scene.commitPlace(pv, snap);
+      this.scene.commitPlace(pv, target);
     } else {
       this.scene.onRefuse(pv, this.worldCells(pv, snap));
       this.scene.returnHome(pv);
     }
+  }
+
+  /** Nearest cell to `snap` (within SNAP_FORGIVE_CELLS) that will legally take this piece, or INVALID. */
+  private nearestPlaceable(pv: PieceView, snap: Vec): Vec {
+    if (SNAP_FORGIVE_CELLS <= 0 || isInvalid(snap)) return INVALID;
+    let best = INVALID;
+    let bestD = Infinity;
+    for (let dy = -SNAP_FORGIVE_CELLS; dy <= SNAP_FORGIVE_CELLS; dy++) {
+      for (let dx = -SNAP_FORGIVE_CELLS; dx <= SNAP_FORGIVE_CELLS; dx++) {
+        const d = dx * dx + dy * dy;
+        if (d >= bestD) continue;
+        const c = v(snap.x + dx, snap.y + dy);
+        if (!this.scene.canPlace(pv, c)) continue;
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
   }
 
   private worldCells(pv: PieceView, snap: Vec): Vec[] {
