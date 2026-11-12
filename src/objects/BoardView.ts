@@ -114,6 +114,11 @@ export class BoardView {
     return v(r(lx / this.cellSize), r(ly / this.cellSize));
   }
 
+  /** Fractional grid position of a top-left point (cell units), for picking the closest cell by true distance. */
+  gridPosAt(px: number, py: number): { x: number; y: number } {
+    return { x: (px - this.x - this.originX) / this.cellSize, y: (py - this.y - this.originY) / this.cellSize };
+  }
+
   setHighlightCells(cells: Vec[], ok: boolean): void {
     this.highlightCells = cells;
     this.highlightOk = ok;

@@ -1,9 +1,13 @@
 // Pointer handling for polyomino PieceViews. Owns no rules: it asks GameScene whether a drop is allowed.
 // Ports scripts/game/DragController.gd.
 //
-// Alignment rule: while a piece is in the air its cells are scaled to the board grid, and the target cell is
-// read from the piece's own top-left, rounded to the nearest grid cell. So the highlighted cells are always
-// exactly the cells the piece is covering, and the drop lands where it looks like it will.
+// Feel rules (modelled on Block Blast):
+//  1. What you see is what you get. One function (`resolve`) decides where a release would land; the ghost preview
+//     and the actual drop both use it, so the highlighted cells are exactly the cells the piece ends up on.
+//  2. On a touch screen the piece rides ABOVE the finger, horizontally centred on it, so the thumb never hides it.
+//     With a mouse the piece stays under the cursor at the spot that was grabbed.
+//  3. Picking up never teleports: the piece grows to board size at once, but its on-screen position glides from
+//     where it was grabbed to the carry position over ~0.1 s. The logical position (ghost, drop) is never delayed.
 
 import * as Phaser from 'phaser';
 import type { GameScene } from '../scenes/GameScene';
@@ -13,34 +17,44 @@ import { Viewport } from '../render/Viewport';
 import { type Vec, v } from '../core/PieceData';
 import { INVALID, PieceView, isInvalid } from './PieceView';
 
-/** Touch-only Y offset (cell fractions) so the piece clears the thumb; smaller = snappier, closer to the finger. */
-const FINGER_LIFT = 0.25;
+/** Touch only: gap (in board cells) between the finger and the bottom edge of the carried piece. */
+const TOUCH_GAP_CELLS = 1.0;
+/** Pickup glide: the leftover offset decays like exp(-GLIDE_RATE * t). 28 -> ~94% gone after 0.1 s. */
+const GLIDE_RATE = 28;
 /** A press on a tray piece released within TAP_TIME without moving more than TAP_SLOP px is a TAP (rotate, once unlocked). */
 const TAP_TIME = 0.35;
 const TAP_SLOP = 10;
 /** A dragged piece with this share of it over the tray is dropped into the tray, wherever the finger is. */
 const TRAY_TOUCH_SHARE = 0.15;
 /**
- * Flick tolerance in cells. On release, if the cell the piece is shown over won't take it, the nearest cell that
- * will (within this many cells) is used instead. Lets a quick flick or a slightly sloppy drop still land, instead
- * of bouncing home. 0 disables it.
+ * Flick tolerance in cells. If the cell the piece is over won't take it, the nearest cell that will (within this
+ * many cells, by true distance) is used instead, in the preview and on release alike. 0 disables it.
  */
 const SNAP_FORGIVE_CELLS = 1;
 
-const touchscreen = (): boolean => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+type DropKind = 'tray' | 'place' | 'refuse';
+interface Drop {
+  kind: DropKind;
+  /** The cell the piece would occupy: the landing cell for 'place', the cell it is hovering for 'refuse'. */
+  cell: Vec;
+}
 
 export class DragController {
   private view: PieceView | null = null;
   private grabOffsetX = 0;
   private grabOffsetY = 0;
-  private lift = 0;
-  private lastCell: Vec = INVALID;
+  private lastKey = '';
   private pressX = 0;
   private pressY = 0;
   private pressTime = 0;
   private moved = false;
   private fromTray = false;
   private activePointer = -1;
+  private lastPx = 0;
+  private lastPy = 0;
+  /** Pickup glide: how far the shown piece still trails behind its carry position. */
+  private glideX = 0;
+  private glideY = 0;
 
   constructor(private scene: GameScene) {
     const input = scene.input;
@@ -61,6 +75,19 @@ export class DragController {
     this.scene.returnHome(v0);
   }
 
+  /** Per frame: lets the pickup glide settle while the finger is held still. */
+  update(dt: number): void {
+    if (!this.view || (this.glideX === 0 && this.glideY === 0)) return;
+    const k = Math.exp(-GLIDE_RATE * dt);
+    this.glideX *= k;
+    this.glideY *= k;
+    if (Math.abs(this.glideX) < 0.25 && Math.abs(this.glideY) < 0.25) {
+      this.glideX = 0;
+      this.glideY = 0;
+    }
+    this.showAt(this.lastPx, this.lastPy);
+  }
+
   private pos(p: Phaser.Input.Pointer): { x: number; y: number } {
     return this.scene.logical(p);
   }
@@ -68,7 +95,7 @@ export class DragController {
   private onDown(p: Phaser.Input.Pointer): void {
     if (!this.scene.acceptingInput || this.view) return;
     const pt = this.pos(p);
-    this.begin(p.id, pt.x, pt.y);
+    this.begin(p.id, pt.x, pt.y, p.wasTouch);
   }
 
   private onMove(p: Phaser.Input.Pointer): void {
@@ -91,12 +118,12 @@ export class DragController {
     Sfx.play('pop', -2, 1 + Math.random() * 0.15);
   }
 
-  private begin(pointerId: number, px: number, py: number): void {
+  private begin(pointerId: number, px: number, py: number, touch: boolean): void {
     const pv = this.scene.viewAt(px, py);
     if (!pv || !pv.movable) return;
     this.activePointer = pointerId;
     this.view = pv;
-    this.lastCell = INVALID;
+    this.lastKey = '';
     this.pressX = px;
     this.pressY = py;
     this.pressTime = performance.now() / 1000;
@@ -118,13 +145,26 @@ export class DragController {
 
     // GameScene rescales the piece to the board grid here.
     this.scene.onPickUp(pv);
-
-    // Re-anchor so the exact spot the finger grabbed stays under the finger at the new size. Without this the
-    // piece jumps by the size difference and every drop is off by a cell.
     const newCs = pv.cellSize;
-    this.grabOffsetX = -(grab.x + fx) * newCs;
-    this.grabOffsetY = -(grab.y + fy) * newCs;
-    this.lift = touchscreen() ? newCs * FINGER_LIFT : 0;
+
+    // Where the piece sits relative to the pointer for the whole drag.
+    if (touch) {
+      // Centred on the finger, bottom edge a fixed gap above it: the finger never covers the piece.
+      this.grabOffsetX = -pv.boxW / 2;
+      this.grabOffsetY = -pv.boxH - newCs * TOUCH_GAP_CELLS;
+    } else {
+      // Keep the exact spot the cursor grabbed under the cursor, at the new size.
+      this.grabOffsetX = -(grab.x + fx) * newCs;
+      this.grabOffsetY = -(grab.y + fy) * newCs;
+    }
+
+    // Glide: start from where the grabbed spot would be at the new size (no visual jump from the rescale),
+    // then ease to the carry position.
+    const startX = px - (grab.x + fx) * newCs;
+    const startY = py - (grab.y + fy) * newCs;
+    const [cx, cy] = this.topLeftFor(px, py);
+    this.glideX = startX - cx;
+    this.glideY = startY - cy;
 
     pv.setDragging(true);
     Sfx.play('pickup', 0, 0.95 + Math.random() * 0.13);
@@ -133,51 +173,102 @@ export class DragController {
 
   /** Where the piece's (unscaled, unrotated) top-left should be for this pointer. */
   private topLeftFor(px: number, py: number): [number, number] {
-    return [px + this.grabOffsetX, py + this.grabOffsetY - this.lift];
+    return [px + this.grabOffsetX, py + this.grabOffsetY];
+  }
+
+  /** Move the shown piece: carry position plus whatever pickup glide is left, snapped to device pixels. */
+  private showAt(px: number, py: number): void {
+    const pv = this.view;
+    if (!pv) return;
+    const [tx, ty] = this.topLeftFor(px, py);
+    const rs = Viewport.rs;
+    pv.setTopLeft(Math.round((tx + this.glideX) * rs) / rs, Math.round((ty + this.glideY) * rs) / rs);
+  }
+
+  private worldCells(pv: PieceView, cell: Vec): Vec[] {
+    if (isInvalid(cell)) return [];
+    return pv.piece.worldCells(cell);
+  }
+
+  /**
+   * THE one decision about where a release at this pointer position lands. `tx, ty` is the piece's carry top-left
+   * (no glide). Used by the live preview and by the release, so they can never disagree.
+   */
+  private resolve(pv: PieceView, tx: number, ty: number): Drop {
+    const board = this.scene.board;
+    const snap = board.cellRoundAt(tx, ty);
+    if (isInvalid(snap)) return { kind: 'refuse', cell: INVALID };
+
+    let cell = snap;
+    let can = this.scene.canPlace(pv, snap);
+    if (!can && SNAP_FORGIVE_CELLS > 0) {
+      const g = board.gridPosAt(tx, ty);
+      let bestD = Infinity;
+      for (let dy = -SNAP_FORGIVE_CELLS; dy <= SNAP_FORGIVE_CELLS; dy++) {
+        for (let dx = -SNAP_FORGIVE_CELLS; dx <= SNAP_FORGIVE_CELLS; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          const c = v(snap.x + dx, snap.y + dy);
+          const d = (c.x - g.x) * (c.x - g.x) + (c.y - g.y) * (c.y - g.y);
+          if (d >= bestD || !this.scene.canPlace(pv, c)) continue;
+          bestD = d;
+          cell = c;
+          can = true;
+        }
+      }
+    }
+
+    // A piece that is mostly over the tray goes back to it. Judged by the piece, not the finger: on a touch
+    // screen the finger sits below the piece, and a green ghost on the board must never be thrown away.
+    const overlap = this.scene.tray.overlapShare(tx, ty, pv.boxW, pv.boxH);
+    if (overlap >= TRAY_TOUCH_SHARE || (overlap > 0 && !can)) return { kind: 'tray', cell: snap };
+    return { kind: can ? 'place' : 'refuse', cell };
   }
 
   private carry(px: number, py: number): void {
     const pv = this.view;
     if (!pv) return;
+    this.lastPx = px;
+    this.lastPy = py;
     if (!this.moved && Math.hypot(px - this.pressX, py - this.pressY) > TAP_SLOP) this.moved = true;
-    const [tx, ty] = this.topLeftFor(px, py);
-    // Snap to device pixels so small pieces don't shimmer between frames.
-    const rs = Viewport.rs;
-    pv.setTopLeft(Math.round(tx * rs) / rs, Math.round(ty * rs) / rs);
+    this.showAt(px, py);
 
+    const [tx, ty] = this.topLeftFor(px, py);
     const board = this.scene.board;
-    const snap = board.cellRoundAt(tx, ty);
-    const world = this.worldCells(pv, snap);
+    const drop = this.resolve(pv, tx, ty);
+    const world = this.worldCells(pv, drop.cell);
 
     let onBoard = false;
-    for (const c of world) {
-      if (board.state && board.state.isPlayable(c)) {
-        onBoard = true;
-        break;
+    if (drop.kind !== 'tray' && board.state) {
+      for (const c of world) {
+        if (board.state.isPlayable(c)) {
+          onBoard = true;
+          break;
+        }
       }
     }
     if (!onBoard) {
       if (board.highlightCells.length > 0) board.clearHighlight();
-      this.lastCell = INVALID;
+      this.lastKey = '';
       return;
     }
 
-    if (snap.x === this.lastCell.x && snap.y === this.lastCell.y) return;
-    this.lastCell = snap;
-    const happy = this.scene.placementHappy(pv, snap);
-    const can = this.scene.canPlace(pv, snap);
-    board.setPreview(world, can, happy, paletteFill(pv.piece.color));
+    const key = `${drop.kind}:${drop.cell.x},${drop.cell.y}`;
+    if (key === this.lastKey) return;
+    this.lastKey = key;
+    const can = drop.kind === 'place';
+    board.setPreview(world, can, can && this.scene.placementHappy(pv, drop.cell), paletteFill(pv.piece.color));
   }
 
   private finish(px: number, py: number): void {
     const pv = this.view;
     if (!pv) return;
     const [tx, ty] = this.topLeftFor(px, py);
-    pv.setTopLeft(tx, ty);
-    const snap = this.scene.board.cellRoundAt(tx, ty);
     const held = performance.now() / 1000 - this.pressTime;
     const isTap = !this.moved && Math.hypot(px - this.pressX, py - this.pressY) <= TAP_SLOP && held <= TAP_TIME;
     const fromTray = this.fromTray;
+    // A tap leaves the piece where it is shown (no lurch up to the carry position before it goes back).
+    if (!(isTap && fromTray)) pv.setTopLeft(tx, ty);
+    const drop = this.resolve(pv, tx, ty);
     this.releaseState();
 
     if (isTap && fromTray) {
@@ -189,60 +280,23 @@ export class DragController {
 
     // Dropped on the tray shelf -> always park it there, even if it came from the board. This is the only way
     // to take a placed piece back off.
-    // Sensitive on purpose: the finger over the tray, or the piece merely touching it (it rides above the finger on
-    // touch screens), sends it home. Only a piece that lands cleanly on the board and barely brushes the tray stays.
-    const overlap = this.scene.tray.overlapShare(pv.left, pv.top, pv.boxW, pv.boxH);
-    // Forgiving release: if the exact cell won't take the piece, land on the nearest cell that will. This is what
-    // makes a fast flick or a near-miss still connect instead of snapping home.
-    let target = snap;
-    let canPlace = this.scene.canPlace(pv, snap);
-    if (!canPlace) {
-      const alt = this.nearestPlaceable(pv, snap);
-      if (!isInvalid(alt)) {
-        target = alt;
-        canPlace = true;
-      }
-    }
-    if (this.scene.tray.containsGlobal(px, py) || overlap >= TRAY_TOUCH_SHARE || (overlap > 0 && !canPlace)) {
+    if (drop.kind === 'tray') {
       this.scene.sendToTray(pv);
-      return;
-    }
-    if (canPlace) {
-      this.scene.commitPlace(pv, target);
+    } else if (drop.kind === 'place') {
+      this.scene.commitPlace(pv, drop.cell);
     } else {
-      this.scene.onRefuse(pv, this.worldCells(pv, snap));
+      this.scene.onRefuse(pv, this.worldCells(pv, drop.cell));
       this.scene.returnHome(pv);
     }
-  }
-
-  /** Nearest cell to `snap` (within SNAP_FORGIVE_CELLS) that will legally take this piece, or INVALID. */
-  private nearestPlaceable(pv: PieceView, snap: Vec): Vec {
-    if (SNAP_FORGIVE_CELLS <= 0 || isInvalid(snap)) return INVALID;
-    let best = INVALID;
-    let bestD = Infinity;
-    for (let dy = -SNAP_FORGIVE_CELLS; dy <= SNAP_FORGIVE_CELLS; dy++) {
-      for (let dx = -SNAP_FORGIVE_CELLS; dx <= SNAP_FORGIVE_CELLS; dx++) {
-        const d = dx * dx + dy * dy;
-        if (d >= bestD) continue;
-        const c = v(snap.x + dx, snap.y + dy);
-        if (!this.scene.canPlace(pv, c)) continue;
-        bestD = d;
-        best = c;
-      }
-    }
-    return best;
-  }
-
-  private worldCells(pv: PieceView, snap: Vec): Vec[] {
-    if (isInvalid(snap)) return [];
-    return pv.piece.worldCells(snap);
   }
 
   private releaseState(): void {
     this.view?.setDragging(false);
     this.view = null;
     this.activePointer = -1;
-    this.lastCell = INVALID;
+    this.lastKey = '';
+    this.glideX = 0;
+    this.glideY = 0;
     this.scene.board.clearHighlight();
   }
 }

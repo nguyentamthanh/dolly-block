@@ -135,6 +135,7 @@ export class GameScene extends BaseScene {
     super.update(time, deltaMs);
     const dt = Math.min(deltaMs, 100) / 1000;
     this.board.update(dt);
+    this.drag.update(dt);
     for (const pv of this.allViews) pv.update(dt);
     this.guide?.update(dt);
     this.tutorial.update(dt);
@@ -608,6 +609,9 @@ export class GameScene extends BaseScene {
     // A piece picked up from the tray still holds its slot while it is dragged (or tapped to rotate). Release it
     // first, so it reclaims its own slot below instead of seeing it "taken" by itself and growing the tray.
     this.detachFromTray(pv);
+    // Shrinking to tray size must pivot on the piece's centre, or it jumps toward its old top-left corner.
+    const cx = pv.left + pv.boxW / 2;
+    const cy = pv.top + pv.boxH / 2;
     let idx = pv.trayIndex;
     if (idx < 0 || idx >= this.inTray.length || this.inTray[idx] !== null) idx = this.inTray.indexOf(null);
     if (idx === -1) {
@@ -619,7 +623,7 @@ export class GameScene extends BaseScene {
     pv.slot = 'tray';
     pv.trayIndex = idx;
     pv.origin = INVALID;
-    this.fitInTraySlot(pv);
+    this.fitInTraySlot(pv, 0.1, { x: cx, y: cy });
   }
 
   /**
@@ -627,7 +631,7 @@ export class GameScene extends BaseScene {
    * thought bubble (which pokes out above and to the right), so neighbours never overlap; and the cell size is
    * capped so a lone 1-cell piece doesn't balloon next to longer ones.
    */
-  private fitInTraySlot(pv: PieceView, duration = 0.1): void {
+  private fitInTraySlot(pv: PieceView, duration = 0.1, from?: { x: number; y: number }): void {
     const slot = this.tray.slotRect(pv.trayIndex);
     const bb = pv.piece.bbox();
     const bx = Math.max(bb.x, 1);
@@ -644,6 +648,7 @@ export class GameScene extends BaseScene {
     let fit = Math.min(slot.w / ex, slot.h / ey) * TRAY_FIT;
     fit = Math.min(Math.max(fit, 12), Math.max(12, this.tray.slotSize * TRAY_MAX_CELL_FRAC));
     pv.setCellSize(fit);
+    if (from) pv.setTopLeft(from.x - pv.boxW / 2, from.y - pv.boxH / 2);
     // Centre piece + bubble as one block: the bubble's room sits above and to the right, so the piece itself lands
     // that much lower and further left.
     const gx = slot.x + slot.w / 2 - (ex * fit) / 2;
