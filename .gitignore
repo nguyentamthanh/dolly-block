@@ -1,6 +1,24 @@
+# Unity
+/Library/
+/Temp/
+/Obj/
+/Builds/
+/Logs/
+/UserSettings/
+/MemoryCaptures/
+*.csproj
+*.sln
+*.slnx
+.vs/
+.idea/
+!/Tests/**/*.csproj
+/Tests/*/bin/
+/Tests/*/obj/
+
+# Node tooling
 node_modules/
-dist/
 *.zip
-tests/out/
+
+# Local
 .vercel/
 .claude/settings.local.json

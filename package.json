@@ -5,15 +5,17 @@
   "type": "module",
   "description": "Cozy Blocks: a Unity 6 block-packing puzzle. Node is only used for tooling (tests, fonts, packaging, smoke test).",
   "scripts": {
-    "check": "sh scripts/unity_check.sh",
-    "test": "node scripts/unity_test.mjs",
-    "build:web": "sh scripts/unity_build.sh WebGL",
-    "build:windows": "sh scripts/unity_build.sh Windows",
-    "build:android": "sh scripts/unity_build.sh Android",
-    "package:web": "node scripts/unity_package_web.mjs",
+    "check": "sh scripts/check.sh",
+    "test": "node scripts/test.mjs",
+    "build:web": "sh scripts/build.sh WebGL",
+    "build:windows": "sh scripts/build.sh Windows",
+    "build:android": "sh scripts/build.sh Android",
+    "package:web": "node scripts/package_web.mjs",
     "serve:web": "node scripts/serve_web.mjs",
-    "smoke:web": "node scripts/unity_web_smoke.mjs",
-    "fonts": "node scripts/unity_fonts.mjs"
+    "smoke:web": "node scripts/web_smoke.mjs",
+    "fonts": "node scripts/fonts.mjs",
+    "compile": "sh scripts/compile.sh",
+    "shot": "sh scripts/shot.sh"
   },
   "devDependencies": {
     "adm-zip": "^0.5.16",

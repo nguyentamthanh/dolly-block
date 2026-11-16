@@ -1,4 +1,4 @@
-// Tiny static server for the Unity WebGL build: node scripts/serve_web.mjs [port=5182] [dir=unity/Builds/WebGL]
+// Tiny static server for the WebGL build: node scripts/serve_web.mjs [port=5182] [dir=Builds/WebGL]
 // The build is gzip with a JS decompression fallback, so plain files with no Content-Encoding work.
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -16,7 +16,7 @@ const TYPES = {
 };
 
 /** Starts the server; resolves with it once listening. */
-export function serveWeb(port = 5182, dir = join(root, 'unity', 'Builds', 'WebGL')) {
+export function serveWeb(port = 5182, dir = join(root, 'Builds', 'WebGL')) {
   const base = resolve(dir);
   const server = createServer((req, res) => {
     const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -40,5 +40,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const port = Number(process.argv[2] || 5182);
   const dir = process.argv[3] ? resolve(process.argv[3]) : undefined;
   await serveWeb(port, dir);
-  console.log(`serving ${dir || 'unity/Builds/WebGL'} on http://localhost:${port}`);
+  console.log(`serving ${dir || 'Builds/WebGL'} on http://localhost:${port}`);
 }
