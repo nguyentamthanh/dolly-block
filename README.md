@@ -1,87 +1,90 @@
 # Cozy Blocks
 
 A calm polyomino puzzle where every block has feelings about colours: place the googly-eyed pieces so that
-everyone is happy at once. Built with **Phaser 4 + TypeScript + Vite** for the web (Playgama, YouTube Playables)
-and ready to be wrapped for mobile.
+everyone is happy at once. Built with **Unity 6 (6000.6.9f1)** for the web (Playgama, YouTube Playables, CrazyGames
+through the Playgama Bridge), with Windows and Android builds from the same code.
 
-The game was first written in Godot and ported to Phaser so it loads fast: about **0.8 MB to the playable menu**
-and a **1.1 MB zip**, against ~13 MB for the Godot web export. The last Godot version is kept in git history at the
-tag `godot-final`.
+History: the game was first written in Godot (tag `godot-final`), then ported to Phaser 4 + TypeScript (tag
+`phaser-final`), then to Unity. Levels, sounds, texts and saves are bit-identical to the Phaser build, so players keep
+their progress.
 
 ## Commands
 
+Unity work needs an activated Unity licence (Unity Hub > Preferences > Licenses). The checks marked *no licence* only
+need the .NET SDK and Node.
+
 ```bash
-npm install
-npm run dev            # http://localhost:5180  (dev-only URL params below)
-npm test               # unit tests: core logic, level ramp, rng/sfx fixtures, tween engine
-npm run build          # typecheck + production build into dist/
-npm run package:web    # build + size budget + cozy-blocks-<version>.zip for the platforms
-npm run assets         # regenerate public/art (WebP) and public/fonts (WOFF2) from assets-src/
-node tests/e2e.mjs     # headless-Chrome end-to-end checks (needs `npm run dev` running)
+npm install                         # Node tooling only (packaging, fonts, smoke test)
+npm run check                       # no licence: compile for Windows/WebGL/Android/Editor + npm test
+npm test                            # no licence: C# Core/audio regression (150 levels, RNG, every sound, music, texts)
+npm run build:web                   # WebGL release build -> unity/Builds/WebGL
+npm run package:web                 # cozy-blocks-unity-<version>.zip for Playgama (VERSION env overrides)
+npm run smoke:web                   # headless Chrome on a phone-sized touch screen: boot, play level 1, save, reload, pause
+npm run serve:web                   # http://localhost:5182 serving the WebGL build
+npm run build:windows               # Development build (screenshots, DevArgs)
+npm run build:android               # release APK (sh scripts/unity_build.sh AndroidBundle for an .aab)
+npm run fonts                       # regenerate the pinned Fredoka weights from assets-src/fonts
+sh scripts/unity_compile.sh         # batch-mode compile in the real editor, prints C# errors
+sh scripts/unity_shot.sh out.png 540 960 -fresh -scene game -level 0 -tut 1 -shotAt 2500
 ```
 
-Dev URL params (dev server only): `?scene=mainmenu|timeline|game|gallery`, `level=N` (also unlocks), `cur=N`,
-`hi=N` (highest unlocked), `tut=1` (tutorial already seen) / `tut=0`, `gems=N`, `lang=xx`, `stars=1` (a few cleared levels).
+`scripts/unity_build.sh <Target> [-release|-development]` overrides the default build kind. After an intended change to
+levels, sounds or texts, accept the new output with `npm test -- --update`; bump `LevelGenerator.VERSION` whenever the
+generator changes (saved runs are tied to it).
+
+Windows player command-line hooks (`DevArgs.cs`): `-scene MainMenu|Timeline|Game`, `-level N`, `-cur N`, `-hi N`,
+`-tut 0|1`, `-gems N`, `-lang xx`, `-stars`, `-fresh`, `-shot path -shotAt ms -quitAfterShot`, `-autoHint ms`,
+`-autoDrag ms`, `-go Scene -goAt ms`, `-fixedStep ms`, `-perf`.
 
 ## Project layout
 
+Everything is built from code at start-up: the only scene is an empty `Main.unity` that `BuildTools.Setup` creates.
+
 ```
-index.html              page shell (canvas parent, start-up error notice)
-vite.config.ts          build: Phaser in its own chunk, bundled Bridge injected into index.html
-public/                 shipped as is: art/ (WebP), fonts/ (WOFF2 + licences), playgama-bridge*.js/json, favicon
-assets-src/             source art and fonts (not shipped); `npm run assets` turns them into public/
-src/
-  main.ts               entry: platform, saved progress, fonts, then createGame()
-  game.ts               creates Phaser.Game and the wiring outside scenes (resize, Esc, platform pause)
-  config.ts             Phaser game config and the scene list
-  dev.ts                dev-only URL params and window.__game
-  scenes/               Phaser scenes: MainMenu, Timeline, Game, Transition (+ dev Gallery), BaseScene
-  objects/              the play screen's game objects: BoardView, PieceView, TrayView, DragController, DragGuide, Hud
-  ui/                   widgets and panels: buttons, tween engine, win panel, tutorial, language picker, ...
-  core/                 pure game logic, no Phaser: BoardState, Solver, LevelGenerator, GameState, Loc, ...
-  render/               Canvas 2D drawing layer: CanvasItem, Art (all procedural art), CanvasView, Fonts, Viewport
-  fx/                   particles, rings, floating text, screen shake
-  audio/                procedural sound effects and background music rendered with Web Audio (no audio files).
-                        Music.ts loops the track from musicSynth.ts: rendered in idle time after the menu, started on
-                        the first gesture, gated by the sound toggle, silenced with the SFX by the platform mute
-  platform/             Playgama Bridge integration (storage, ads, pause/mute, game_ready)
-tests/                  Vitest tests, Godot-exported fixtures (fixtures/), reference screenshots (baseline/), e2e.mjs
-scripts/                build/packaging, asset optimisation, screenshot + pixel-diff tools
+unity/Assets/Scripts/
+  GameHost.cs   entry point and main loop: platform, saved progress, fonts, then the scenes
+  DevArgs.cs    command-line test hooks
+  Core/         pure game logic: Rng (Godot PCG32), GodotSort, PieceData, BoardState, Solver, LevelGenerator,
+                LevelData, GameState (JSON save), Loc + LocTexts (all texts: en, ru, es, pt, de, fr, tr)
+  Render/       Canvas2D.cs: a software Canvas 2D (exact-area anti-aliasing, strokes, gradients); TtfFont.cs reads glyph
+                outlines and GPOS kerning; Art (all procedural art), CanvasItem, Fonts, PolyShape, Viewport
+  Engine/       display tree (GameObj, Container, RectObj, ImageObj, CanvasView, Graphics2D), scenes, pointer input,
+                Godot-style tweens, GPU renderer (premultiplied quads in Camera.onPostRender)
+  Scenes/       MainMenu, Timeline, Game, Transition (circle wipe, as a shader)
+  Objects/      play screen: BoardView, PieceView, TrayView, DragController, DragGuide, RotateGuide, Hud
+  UI/ Fx/       widgets, panels, tutorial, language picker; particles and screen effects
+  Audio/        procedural sound effects and music rendered into AudioClips at start-up (no audio files)
+  Platform/     PlatformSdk (+ PlatformBridgeReceiver)
+  Editor/       BuildTools: project settings and the batch build entry points
+unity/Assets/Plugins/WebGL/CozyBridge.jslib     glue to the Playgama Bridge
+unity/Assets/WebGLTemplates/CozyBlocks/         the web page + playgama-bridge.js, its config, favicon
+unity/Assets/Resources/                         fonts and menu art (.bytes), shaders
+unity/Tests/Parity/       .NET console app running Core + audio without Unity; golden.json holds the expected hashes
+unity/Tests/CompileCheck/ compiles Assets/Scripts against the editor's DLLs per platform, without a licence
+assets-src/               source fonts and art (fonts are pinned into Resources by npm run fonts)
+promo/, music-preview.mp3 store trailer and music preview
+scripts/                  build, packaging, tests, static server, smoke test
 ```
 
-## Staying identical to the Godot build
+The layout works in a logical space of 720 x 1280 expanded to the window's aspect (`Render/Viewport.cs`); canvases are
+painted at device resolution. Per-frame full-screen canvas paints are too slow on the CPU: use a shader for those.
 
-* **Levels.** The generator still uses a port of Godot's PCG32, `hash(String)` and `sort_custom`, but the level ramp was
-  redesigned (generator `VERSION` 5): tiny feeling-free boards first, a gentler climb with more levels, and pieces can only
-  be rotated from level 10 (`ROTATE_FROM_LEVEL`; before that the solver and generator run without rotation). Levels no
-  longer match the Godot build, so `tests/levels.test.ts` checks the ramp instead. If the generator changes again, bump
-  `VERSION` in `LevelGenerator.ts` (saved runs are tied to it).
-* **Free hint.** After 10 seconds without touching a piece, `GameScene` shows the finger guide once per level
-  (no diamonds, no star penalty).
-* **Sounds.** `tests/sfx.test.ts` checks every synthesized sample against Godot's.
-* **Pixels.** `scripts/shot.mjs` + `scripts/diff.mjs` screenshot a page and diff it against `tests/baseline/*.png`
-  (captured from Godot): menu, timeline and the play screen at several window shapes differ by ~0.15-0.4 % of pixels
-  (anti-aliasing).
-* **Text metrics.** Godot sizes a line by the tallest font in the stack (Noto Sans, the fallback), rounds
-  advances to whole pixels and strokes outlines with radius `outline_size / 4`; `render/Fonts.ts` reproduces that.
+## Platforms
 
-## Platforms (one build for Playgama and YouTube Playables)
+`Platform/PlatformSdk.cs` is the only place game code talks to a host.
 
-The same zip runs on both: the Playgama Bridge (bundled, loaded by a static `<script>` that `vite.config.ts` injects)
-talks to whichever host it is in, so game code only uses `PlatformSdk`. To satisfy YouTube Playables' rules:
+* **WebGL** (one zip for Playgama, YouTube Playables and CrazyGames): the page loads `playgama-bridge.js` with a plain
+  `<script>` tag (never a CDN or a dynamic script: YouTube forbids both), initialises it (6 s timeout) before Unity
+  starts and drives the Bridge loading bar (download 0-49, the game 50 and 100). Progress goes only through
+  `bridge.storage` (`progress` key, the JSON the Phaser and Godot builds used; the game waits up to 5 s for it).
+  The platform's audio/pause events, ads and a hidden page mute and freeze the game. `GAME_READY`,
+  `GAMEPLAY_STARTED` and `GAMEPLAY_STOPPED` are sent; the language comes from `platform.language`; YouTube hides the
+  sound button. No IndexedDB asset cache, gzip with a JS decompression fallback (Playgama 5.1.1), backing store capped
+  at 2x the CSS size. Analytics are off on `platforms.youtube` in `playgama-bridge-config.json`.
+* **Windows / Android**: progress in PlayerPrefs, no ads (interstitials skipped, rewarded only in development builds).
+  Android: `com.cozyblocks.game`, IL2CPP ARM64 + ARMv7, API 24+, portrait, kept out of notches, Back closes the top
+  dialog and leaves the app from the home screen. Release signing needs your keystore (Player Settings > Publishing).
+* **iOS**: Unity on Windows can only export the Xcode project; building, signing and TestFlight need macOS + Xcode.
 
-* no external requests: the Bridge is never fetched from a CDN; analytics are off on `platforms.youtube` in `playgama-bridge-config.json`;
-* progress only through the Bridge storage (`localStorage` is used only when there is no platform, i.e. dev / tests);
-* pause and mute only from the platform's events: Phaser's Page Visibility / blur handlers are detached in `game.ts`;
-* no in-game mute button on YouTube (`PlatformSdk.hideSoundToggle`), Esc closes dialogs (`ui/Overlay.ts`, never preventDefault'ed);
-* any aspect ratio, and a zero-sized first viewport, are handled (`tests/e2e.mjs`, "YouTube Playables rules").
-
-Still to do in YouTube's Developer Portal: thumbnails and title without logos or branding.
-
-## Notes
-
-* Everything is laid out in a logical space of 720 x 1280, expanded to the window's aspect; `render/Viewport.ts` and the
-  scenes' camera zoom map it to device pixels, so canvases stay crisp on HiDPI.
-* Progress goes to the platform storage (`progress` key, same JSON as the Godot build); rewarded/interstitial ads,
-  `game_ready` and loading progress are in `PlatformSdk`.
-* `Ports ... .gd` comments in the source name the Godot file a piece came from; look it up at tag `godot-final`.
+Known moderation risks on Playgama: the sounds are synthesised in code (3.3.2 asks for ogg/mp3), Esc closes dialogs
+(1.5.2), and Unity's own file system creates an `/idbfs` IndexedDB database at start-up (the game never saves there).
