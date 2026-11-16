@@ -1,0 +1,17 @@
+/Library/
+/Temp/
+/Obj/
+/Builds/
+/Logs/
+/UserSettings/
+/MemoryCaptures/
+*.csproj
+*.sln
+*.slnx
+.vs/
+.idea/
+/Tests/Parity/bin/
+/Tests/Parity/obj/
+/Tests/CompileCheck/bin/
+/Tests/CompileCheck/obj/
+!/Tests/**/*.csproj

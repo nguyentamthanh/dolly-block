@@ -2,10 +2,13 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "phaser-dev",
+      "name": "unity-web",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["node_modules/vite/bin/vite.js", "--port", "5180", "--strictPort"],
-      "port": 5180
+      "runtimeArgs": [
+        "scripts/serve_web.mjs",
+        "5182"
+      ],
+      "port": 5182
     }
   ]
 }

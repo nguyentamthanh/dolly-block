@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Compiles every script under Assets/Scripts against the installed editor's UnityEngine / UnityEditor assemblies,
+    without starting Unity (so without a licence). Catches C# errors only; it does not import assets or build players.
+      dotnet build unity/Tests/CompileCheck -p:Platform=WebGL     (also: Windows, Android, Editor)
+    scripts/unity_check.sh runs all four.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <OutputType>Library</OutputType>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <NoWarn>CS0162;CS0168;CS0219;CS0414;CS0649;CS0067;CS0618</NoWarn>
+    <UnityEditorDir Condition="'$(UnityEditorDir)' == ''">C:\Program Files\Unity\Hub\Editor\6000.6.9f1\Editor</UnityEditorDir>
+    <Platform Condition="'$(Platform)' == '' Or '$(Platform)' == 'AnyCPU'">Windows</Platform>
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <DefineConstants Condition="'$(Platform)' == 'Windows'">UNITY_STANDALONE;UNITY_STANDALONE_WIN</DefineConstants>
+    <DefineConstants Condition="'$(Platform)' == 'WebGL'">UNITY_WEBGL</DefineConstants>
+    <DefineConstants Condition="'$(Platform)' == 'Android'">UNITY_ANDROID</DefineConstants>
+    <DefineConstants Condition="'$(Platform)' == 'Editor'">UNITY_EDITOR;UNITY_EDITOR_WIN;UNITY_STANDALONE;UNITY_STANDALONE_WIN</DefineConstants>
+    <DefineConstants>$(DefineConstants);UNITY_6000_0_OR_NEWER;UNITY_2021_3_OR_NEWER</DefineConstants>
+    <BaseOutputPath>bin\$(Platform)\</BaseOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Assets/Scripts/**/*.cs" Exclude="../../Assets/Scripts/Editor/**/*.cs" />
+    <Compile Include="../../Assets/Scripts/Editor/**/*.cs" Condition="'$(Platform)' == 'Editor'" />
+    <Reference Include="$(UnityEditorDir)\Data\Managed\UnityEngine\UnityEditor*.dll" Condition="'$(Platform)' == 'Editor'" Private="false" />
+    <Reference Include="$(UnityEditorDir)\Data\Managed\UnityEngine\UnityEngine*.dll" Exclude="$(UnityEditorDir)\Data\Managed\UnityEngine\UnityEngine.dll" Private="false" />
+  </ItemGroup>
+</Project>
